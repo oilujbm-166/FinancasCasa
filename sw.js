@@ -1,9 +1,10 @@
-const CACHE_NAME = 'financascasa-v1';
+const CACHE_NAME = 'financascasa-v2';
 const ASSETS = [
   './',
   './index.html',
   './css/styles.css',
   './js/storage.js',
+  './js/supabase.js',
   './js/pdf.js',
   './js/api.js',
   './js/app.js',
@@ -16,7 +17,8 @@ const ASSETS = [
 const CDN_ASSETS = [
   'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js'
 ];
 
 // Install: cache all local assets
@@ -41,8 +43,9 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Never cache API calls
+  // Never cache API or Supabase calls
   if (url.hostname === 'api.anthropic.com') return;
+  if (url.hostname.endsWith('.supabase.co')) return;
 
   // HTML: network-first (so updates are picked up)
   if (event.request.mode === 'navigate' || url.pathname.endsWith('.html')) {

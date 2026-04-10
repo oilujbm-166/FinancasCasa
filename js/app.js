@@ -432,11 +432,16 @@ function migrateOldInvestments() {
 }
 
 // === INITIALIZATION ===
-document.addEventListener('DOMContentLoaded', () => {
+let _appInitialized = false;
+
+function initApp() {
+  if (_appInitialized) return;
+  _appInitialized = true;
+
   loadFromLocalStorage();
   migrateOldInvestments();
 
-  // Restore API key UI
+  // Restore API key UI (only in offline mode; cloud mode restores via decryption)
   const savedKey = getApiKey();
   if (savedKey) {
     ANTHROPIC_API_KEY = savedKey;
@@ -467,6 +472,16 @@ document.addEventListener('DOMContentLoaded', () => {
     renderBudgetDonut();
     renderProjecoes();
   });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Auth gate: initAuth() will call initApp() after login or offline choice
+  if (typeof initAuth === 'function') {
+    initAuth();
+  } else {
+    // Supabase SDK not loaded — go straight to app
+    initApp();
+  }
 });
 
 // === MOBILE SIDEBAR ===

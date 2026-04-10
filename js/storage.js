@@ -115,6 +115,10 @@ function saveToLocalStorage() {
   } catch (e) {
     showStorageWarning('Erro ao salvar dados! Armazenamento local cheio ou indisponível. Faça backup imediatamente.');
   }
+  // Sync to cloud if authenticated
+  if (typeof scheduleSyncToSupabase === 'function') {
+    scheduleSyncToSupabase();
+  }
 }
 
 function loadFromLocalStorage() {
@@ -210,6 +214,11 @@ function getApiKey() {
 }
 
 function saveApiKeyToStorage(key) {
+  // If Supabase auth is active, encrypt to cloud instead of plaintext local
+  if (typeof saveApiKeyToStorageWithCloud === 'function') {
+    saveApiKeyToStorageWithCloud(key);
+    return;
+  }
   try { localStorage.setItem(LS_KEY_API, key); }
   catch (e) { console.warn('Could not save API key'); }
 }

@@ -750,3 +750,44 @@ option { background: var(--bg2); }
 .bill-child td { border-top: 1px solid var(--border); }
 .bill-child:last-child td { border-bottom: 1px solid var(--border); }
 
+/* AUTH GATE */
+.auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.auth-gate.hidden { display: none; }
+.auth-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r3);
+  padding: 48px 36px;
+  width: 100%;
+  max-width: 400px;
+}
+.auth-logo {
+  font-family: 'DM Serif Display', serif;
+  font-size: 28px;
+  color: var(--accent);
+  text-align: center;
+  letter-spacing: -0.5px;
+  margin-bottom: 4px;
+}
+.auth-sub {
+  text-align: center;
+  color: var(--text3);
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 32px;
+}
+
+/* SYNC INDICATOR */
+#syncStatus .syncing { animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
