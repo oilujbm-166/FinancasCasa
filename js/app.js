@@ -57,6 +57,19 @@ function saveTx() {
     color: catColor(finalCat)
   };
 
+  // Se a categoria escolhida é médica, injeta contexto fiscal para aparecer no módulo
+  const catDef = CATEGORIES[finalCat];
+  if (catDef && catDef._medica && catDef.fiscal && catDef.fiscal.dedutivelLC && tipo === 'despesa') {
+    const fator = catDef.fiscal.fatorPadrao || 1;
+    tx.fiscal = {
+      contexto: 'medica_pf',
+      dedutivelLC: true,
+      fatorAplicado: fator,
+      valorDedutivel: roundCents(Math.abs(val) * fator),
+      competencia: date.slice(0, 7),
+    };
+  }
+
   const dupes = findDuplicates([tx]);
   if (dupes.length > 0 && !confirm('Transação similar já existe (' + name + '). Adicionar mesmo assim?')) return;
 
@@ -300,6 +313,13 @@ function refreshAll() {
   renderCatChips();
   renderCategoryManager();
   renderProjecoes();
+  // Re-render do módulo Planejamento Médica se estiver ativo e a section estiver visível
+  if (typeof renderPlanejamentoMedica === 'function' && typeof isPlanejamentoMedicaAtivo === 'function' && isPlanejamentoMedicaAtivo()) {
+    const section = document.getElementById('section-planejamentoMedica');
+    if (section && section.classList.contains('active')) {
+      renderPlanejamentoMedica();
+    }
+  }
   saveToLocalStorage();
 }
 
@@ -410,7 +430,7 @@ function restoreBackup() {
 
 // === MODAL EVENT LISTENERS ===
 document.addEventListener('DOMContentLoaded', () => {
-  ['txModal', 'editModal', 'investModal', 'goalModal', 'receitaModal', 'categoryModal'].forEach(id => {
+  ['txModal', 'editModal', 'investModal', 'goalModal', 'receitaModal', 'categoryModal', 'pmPlantaoModal', 'pmDespesaModal'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('click', (e) => { if (e.target.id === id) el.classList.remove('show'); });
   });
@@ -498,7 +518,11 @@ function showSection(id, el) {
   document.querySelector('#section-' + id).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
-  const titles = { dashboard: 'Visão Geral', extrato: 'Importar', receitas: 'Receitas', despesas: 'Despesas', orcamento: 'Orçamento', investimentos: 'Investimentos', metas: 'Metas', projecoes: 'Projeções', ia: 'Consultor IA', config: 'Configurações' };
+  const titles = { dashboard: 'Visão Geral', extrato: 'Importar', receitas: 'Receitas', despesas: 'Despesas', orcamento: 'Orçamento', planejamentoMedica: 'Planejamento Médica', investimentos: 'Investimentos', metas: 'Metas', projecoes: 'Projeções', ia: 'Consultor IA', config: 'Configurações' };
+  // Render lazy de módulos que não estão no refreshAll padrão
+  if (id === 'planejamentoMedica' && typeof renderPlanejamentoMedica === 'function') {
+    renderPlanejamentoMedica();
+  }
   document.getElementById('pageTitle').textContent = titles[id] || '';
   // Close sidebar on mobile after navigation
   if (window.innerWidth <= 768) toggleSidebar();

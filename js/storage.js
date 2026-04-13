@@ -103,7 +103,11 @@ function showStorageWarning(msg) {
 function saveToLocalStorage() {
   const customCats = {};
   Object.entries(CATEGORIES).forEach(([k, v]) => { if (k !== 'Receita') customCats[k] = v; });
-  const data = { transactions, budgetData, goals, investments, aiHistory, customCategories: customCats };
+  const data = {
+    transactions, budgetData, goals, investments, aiHistory,
+    customCategories: customCats,
+    planejamentoMedica: (typeof planejamentoMedica !== 'undefined') ? planejamentoMedica : null
+  };
   try {
     const json = JSON.stringify(data);
     localStorage.setItem(LS_KEY_DATA, json);
@@ -148,6 +152,11 @@ function loadFromLocalStorage() {
       data.investments?.forEach(inv => investments.push(inv));
       aiHistory.length = 0;
       data.aiHistory?.forEach(h => aiHistory.push(h));
+      // Restore módulo Planejamento Médica (se existir)
+      if (typeof planejamentoMedica !== 'undefined' && data.planejamentoMedica) {
+        planejamentoMedica = data.planejamentoMedica;
+        if (typeof pmRestoreCategorias === 'function') pmRestoreCategorias();
+      }
     } else {
       rebuildBudgetData();
     }

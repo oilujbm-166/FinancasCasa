@@ -1,4 +1,4 @@
-const CACHE_NAME = 'financascasa-v2';
+const CACHE_NAME = 'financascasa-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -7,6 +7,7 @@ const ASSETS = [
   './js/supabase.js',
   './js/pdf.js',
   './js/api.js',
+  './js/fiscal.js',
   './js/app.js',
   './manifest.json',
   './icons/icon-192.png',

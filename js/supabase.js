@@ -210,7 +210,8 @@ async function saveToSupabase() {
     Object.entries(CATEGORIES).forEach(([k, v]) => { if (k !== 'Receita') customCats[k] = v; });
     const blob = {
       transactions, budgetData, goals, investments, aiHistory,
-      customCategories: customCats
+      customCategories: customCats,
+      planejamentoMedica: (typeof planejamentoMedica !== 'undefined') ? planejamentoMedica : null
     };
 
     const { error } = await client
@@ -272,6 +273,12 @@ async function loadFromSupabase() {
 
     aiHistory.length = 0;
     (cloudData.aiHistory || []).forEach(h => aiHistory.push(h));
+
+    // Restore módulo Planejamento Médica (se existir no blob)
+    if (typeof planejamentoMedica !== 'undefined' && cloudData.planejamentoMedica) {
+      planejamentoMedica = cloudData.planejamentoMedica;
+      if (typeof pmRestoreCategorias === 'function') pmRestoreCategorias();
+    }
 
     // Also persist to localStorage as offline cache
     saveToLocalStorage();
