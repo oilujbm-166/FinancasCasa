@@ -195,6 +195,7 @@ async function askAI(msg) {
 // === IMPORT / AI CLASSIFY ===
 // Stores parsed data for the current import session
 let _pendingBill = null;
+let _pendingPayslip = null;
 let _pendingTransactions = [];
 
 async function processarExtrato() {
@@ -202,6 +203,7 @@ async function processarExtrato() {
   const text = document.getElementById('pasteArea').value.trim();
   if (!text) { alert('Cole o conteúdo do extrato primeiro!'); return; }
   _pendingBill = null;
+  _pendingPayslip = null;
   _pendingTransactions = [];
 
   const res = document.getElementById('analiseResult');
@@ -225,7 +227,7 @@ async function processarExtrato() {
       body: JSON.stringify({
         model: CLAUDE_MODEL,
         max_tokens: 8000,
-        system: `Você é um sistema inteligente de classificação financeira brasileira. Extraia TODAS as transações do documento.
+        system: `Você é um sistema inteligente de classificação financeira brasileira. Extraia TODOS os lançamentos do documento.
 
 TIPOS DE DOCUMENTOS SUPORTADOS: Extrato bancário, Fatura de cartão de crédito, Contracheque/Holerite, Documento de investimento.
 
@@ -240,6 +242,30 @@ DETECÇÃO DE TIPO:
   "transacoes": [ { "date": "YYYY-MM-DD", "name": "descrição", "category": "categoria", "value": numero_positivo } ]
 }
 
+- Se o documento for um CONTRACHEQUE / HOLERITE / DEMONSTRATIVO DE PAGAMENTO (contém termos como "contracheque", "holerite", "folha de pagamento", "proventos", "descontos", "líquido a receber", "salário base", "competência", "INSS", "IRRF"), retorne:
+{
+  "tipo": "contracheque",
+  "empregador": "nome da empresa/empregador (string vazia se não encontrado)",
+  "competencia": "YYYY-MM (mês de referência do contracheque)",
+  "bruto": numero_positivo_total_proventos,
+  "liquido": numero_positivo_total_liquido,
+  "lancamentos": [
+    { "date": "YYYY-MM-DD", "name": "Salário base", "category": "Receita", "type": "receita", "value": numero_positivo },
+    { "date": "YYYY-MM-DD", "name": "INSS", "category": "Impostos", "type": "despesa", "value": numero_positivo },
+    { "date": "YYYY-MM-DD", "name": "IRRF", "category": "Impostos", "type": "despesa", "value": numero_positivo }
+  ]
+}
+
+REGRAS DE CATEGORIZAÇÃO PARA CONTRACHEQUE:
+* Proventos (salário base, horas extras, adicional noturno, insalubridade, periculosidade, comissões, bonificações, 13º, férias, PLR) → category "Receita", type "receita".
+* INSS, IRRF, IR, contribuição previdenciária → category "Impostos", type "despesa".
+* Plano de saúde, convênio médico, odontológico → category "Saúde", type "despesa".
+* Vale transporte (desconto) → category "Transporte", type "despesa".
+* Vale refeição / vale alimentação (se aparecer como desconto) → category "Alimentação", type "despesa".
+* Contribuição sindical, mensalidade associativa → category "Outros", type "despesa".
+* Empréstimo consignado, adiantamento → category "Outros", type "despesa".
+Use a data do pagamento (ou primeiro dia do mês de competência se a data não estiver explícita) em todos os lançamentos.
+
 - Para QUALQUER OUTRO tipo de documento, retorne:
 {
   "tipo": "extrato",
@@ -249,7 +275,7 @@ DETECÇÃO DE TIPO:
 Categorias válidas para despesas: ${validCats}
 Para receitas use category "Receita" com type "receita".
 
-IMPORTANTE: Datas em YYYY-MM-DD. Value SEMPRE positivo. Em fatura de cartão todas as transações são despesa (não precisa do campo type). Extraia TODAS as transações, não resuma.`,
+IMPORTANTE: Datas em YYYY-MM-DD. Value SEMPRE positivo (o sinal é inferido pelo type). Em fatura de cartão todas as transações são despesa (não precisa do campo type). Extraia TODAS as transações, não resuma.`,
         messages: [{ role: 'user', content: `Analise e classifique TODAS as transações deste documento:\n\n${text}` }]
       })
     });
@@ -319,7 +345,18 @@ IMPORTANTE: Datas em YYYY-MM-DD. Value SEMPRE positivo. Em fatura de cartão tod
       return;
     }
 
-    // === EXTRATO / CONTRACHEQUE (flat transactions) ===
+    // === CONTRACHEQUE (grouped payslip) ===
+    if (parsed.tipo === 'contracheque') {
+      _pendingPayslip = buildPendingPayslip(parsed);
+      if (!_pendingPayslip) {
+        res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3)"><div style="font-size:48px;margin-bottom:8px">🤔</div><div>Nenhum lançamento encontrado no contracheque.</div></div>';
+        return;
+      }
+      renderPayslipPreview();
+      return;
+    }
+
+    // === EXTRATO (flat transactions) ===
     const txList = parsed.transacoes || [];
     if (txList.length === 0) {
       res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3)"><div style="font-size:48px;margin-bottom:8px">🤔</div><div>Nenhuma transação identificada.</div></div>';
@@ -388,7 +425,7 @@ function salvarFatura() {
   }
   const bill = _pendingBill;
   // Check if a bill for the same card/month already exists
-  const existingBill = transactions.find(t => t.isBill && t.cardDigits === bill.cartao && t.billMonth === bill.mesReferencia);
+  const existingBill = transactions.find(t => t.isGroup && t.groupType === 'invoice' && t.cardDigits === bill.cartao && t.billMonth === bill.mesReferencia);
   if (existingBill && !confirm('Fatura do cartão ****' + bill.cartao + ' referente a ' + bill.mesReferencia + ' já foi importada. Importar novamente?')) return;
   const children = bill.transacoes.map(t => ({
     date: t.date || bill.mesReferencia + '-01',
@@ -397,7 +434,8 @@ function salvarFatura() {
     val: roundCents(-(parseFloat(t.value) || 0)),
     method: 'Crédito',
     icon: catIcon(t.category),
-    color: catColor(t.category)
+    color: catColor(t.category),
+    type: 'despesa'
   }));
 
   const mesLabel = bill.mesReferencia || '';
@@ -410,6 +448,13 @@ function salvarFatura() {
     icon: '💳',
     color: '#f87171',
     isBill: true,
+    isGroup: true,
+    groupType: 'invoice',
+    groupMeta: {
+      dueDate: bill.vencimento,
+      billMonth: bill.mesReferencia,
+      cardDigits: bill.cartao
+    },
     dueDate: bill.vencimento,
     billMonth: bill.mesReferencia,
     cardDigits: bill.cartao,
@@ -425,6 +470,109 @@ function salvarFatura() {
   document.getElementById('importedTxSection').style.display = 'none';
   document.getElementById('importedTxSection').innerHTML = '';
   alert(`Fatura salva com ${children.length} transações!`);
+}
+
+// === CONTRACHEQUE: preview, edição e salvamento ===
+
+function renderPayslipPreview() {
+  if (!_pendingPayslip) return;
+  const p = _pendingPayslip;
+  const totals = calcPayslipTotals(p.lancamentos);
+  const mesLabel = p.competencia ? p.competencia.split('-').reverse().join('/') : '';
+  const empLabel = p.empregador || '—';
+
+  document.getElementById('importedTxSection').style.display = 'block';
+  document.getElementById('importedTxSection').innerHTML = `
+    <div class="divider"></div>
+    <div class="card" style="border-left:4px solid var(--accent3);margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="font-size:16px;font-weight:600">💼 Contracheque — ${esc(empLabel)}</div>
+          <div style="font-size:13px;color:var(--text2);margin-top:4px">Competência: <strong>${esc(mesLabel)}</strong></div>
+        </div>
+        <div style="text-align:right;display:flex;flex-direction:column;gap:2px">
+          <div style="font-size:12px;color:var(--text3)">Bruto: <span style="color:var(--accent3)">R$ ${totals.bruto.toFixed(2).replace('.', ',')}</span></div>
+          <div style="font-size:12px;color:var(--text3)">Descontos: <span style="color:var(--danger)">R$ ${totals.descontos.toFixed(2).replace('.', ',')}</span></div>
+          <div style="font-size:20px;font-weight:600;color:var(--accent3);margin-top:4px">Líquido R$ ${totals.liquido.toFixed(2).replace('.', ',')}</div>
+          <div style="font-size:12px;color:var(--text3)">${p.lancamentos.length} lançamentos</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-header" style="margin-bottom:12px">
+      <div style="font-size:14px;font-weight:500">Detalhamento do Contracheque</div>
+      <button class="btn btn-success" onclick="salvarContracheque()">Salvar Contracheque</button>
+    </div>
+    <div class="card">
+      <table class="data-table"><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Ação</th></tr></thead>
+      <tbody id="payslipPreviewTbody">${p.lancamentos.map((l, i) => {
+        const isReceita = l.type === 'receita';
+        const icon = catIcon(l.category || 'Outros');
+        const valColor = isReceita ? 'var(--accent3)' : 'var(--danger)';
+        const sign = isReceita ? '+' : '-';
+        return `<tr data-payslip-idx="${i}">
+          <td>${esc(l.date || '—')}</td>
+          <td>${esc(icon)} ${esc(l.name || '—')}</td>
+          <td><span class="badge badge-blue">${esc(l.category || 'Outros')}</span></td>
+          <td style="color:${valColor};font-weight:500">${sign} R$ ${(parseFloat(l.value) || 0).toFixed(2).replace('.', ',')}</td>
+          <td><button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="removePayslipItem(${i})" title="Remover">✕</button></td>
+        </tr>`;
+      }).join('')}</tbody></table>
+    </div>`;
+
+  const res = document.getElementById('analiseResult');
+  if (res) {
+    res.innerHTML = `<div style="padding:20px;text-align:center"><div style="font-size:48px;margin-bottom:8px">💼</div><div style="font-size:15px;margin-bottom:6px">Contracheque detectado!</div><div style="font-size:13px;color:var(--text3)">${p.lancamentos.length} lançamentos · Líquido R$ ${totals.liquido.toFixed(2).replace('.', ',')}</div></div>`;
+  }
+}
+
+function removePayslipItem(idx) {
+  if (!_pendingPayslip) return;
+  _pendingPayslip.lancamentos.splice(idx, 1);
+  const totals = calcPayslipTotals(_pendingPayslip.lancamentos);
+  _pendingPayslip.bruto = totals.bruto;
+  _pendingPayslip.liquido = totals.liquido;
+  if (_pendingPayslip.lancamentos.length === 0) {
+    _pendingPayslip = null;
+    const section = document.getElementById('importedTxSection');
+    if (section) { section.style.display = 'none'; section.innerHTML = ''; }
+    const res = document.getElementById('analiseResult');
+    if (res) res.innerHTML = '<div style="text-align:center;color:var(--text3)"><div style="font-size:48px;margin-bottom:12px">🤖</div><div style="font-size:15px;margin-bottom:6px">Aguardando documento</div><div style="font-size:13px">Faça upload ou cole seu extrato para que a IA analise e classifique.</div></div>';
+    return;
+  }
+  renderPayslipPreview();
+}
+
+function salvarContracheque() {
+  if (!_pendingPayslip || _pendingPayslip.lancamentos.length === 0) {
+    alert('Nenhum lançamento no contracheque!');
+    return;
+  }
+  const p = _pendingPayslip;
+  const existing = transactions.find(t =>
+    t.isGroup &&
+    t.groupType === 'payslip' &&
+    t.groupMeta &&
+    t.groupMeta.competencia === p.competencia &&
+    t.groupMeta.empregador === p.empregador
+  );
+  if (existing) {
+    const empLabel = p.empregador || '(sem empregador)';
+    const mesLabel = p.competencia ? p.competencia.split('-').reverse().join('/') : '(sem competência)';
+    if (!confirm(`Contracheque de ${empLabel} referente a ${mesLabel} já foi importado. Importar novamente?`)) return;
+  }
+
+  const parentTx = buildPayslipTransaction(p);
+  if (!parentTx) { alert('Erro ao montar contracheque!'); return; }
+
+  transactions.unshift(parentTx);
+  _pendingPayslip = null;
+  updateBudgetFromTransactions();
+  refreshAll();
+  document.getElementById('pasteArea').value = '';
+  document.getElementById('analiseResult').innerHTML = '<div style="text-align:center;color:var(--text3)"><div style="font-size:48px;margin-bottom:12px">🤖</div><div style="font-size:15px;margin-bottom:6px">Aguardando documento</div><div style="font-size:13px">Faça upload ou cole seu extrato para que a IA analise e classifique.</div></div>';
+  document.getElementById('importedTxSection').style.display = 'none';
+  document.getElementById('importedTxSection').innerHTML = '';
+  alert(`Contracheque salvo com ${parentTx.children.length} lançamentos!`);
 }
 
 function removePendingTx(idx) {

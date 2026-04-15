@@ -13,6 +13,7 @@ const DEFAULT_CATEGORIES = {
   'Lazer':        { icon: '🎬', color: '#f87171' },
   'Assinaturas':  { icon: '📱', color: '#818cf8' },
   'Educação':     { icon: '📚', color: '#60a5fa' },
+  'Impostos':     { icon: '🏛️', color: '#c084fc' },
   'Outros':       { icon: '📦', color: '#64748b' },
 };
 
@@ -136,11 +137,12 @@ function loadFromLocalStorage() {
         Object.entries(data.customCategories).forEach(([k, v]) => { CATEGORIES[k] = v; });
         CATEGORIES['Receita'] = { icon: '💰', color: '#34d399' };
       }
+      ensureDefaultCategories();
       // Rebuild budget from categories
       rebuildBudgetData();
       // Load transactions
       transactions.length = 0;
-      data.transactions?.forEach(t => transactions.push(t));
+      data.transactions?.forEach(t => transactions.push(normalizeGroupTx(t)));
       // Load budget limits/spent
       data.budgetData?.forEach((b) => {
         const existing = budgetData.find(bd => bd.cat === b.cat);
@@ -171,6 +173,122 @@ function roundCents(val) {
   return Math.round((parseFloat(val) || 0) * 100) / 100;
 }
 
+// === HELPER: Garante que categorias default introduzidas em updates estão presentes.
+// Necessário quando usuários têm customCategories salvas que não incluem categorias adicionadas depois.
+function ensureDefaultCategories() {
+  if (!CATEGORIES['Impostos']) {
+    CATEGORIES['Impostos'] = { icon: '🏛️', color: '#c084fc' };
+  }
+}
+
+// === HELPER: Totais de um contracheque (bruto, descontos, líquido).
+// Função pura: soma lançamentos por type.
+function calcPayslipTotals(lancamentos) {
+  const arr = Array.isArray(lancamentos) ? lancamentos : [];
+  let bruto = 0;
+  let descontos = 0;
+  arr.forEach(l => {
+    const v = parseFloat(l.value) || 0;
+    if (l.type === 'receita') bruto += v;
+    else descontos += v;
+  });
+  return {
+    bruto: roundCents(bruto),
+    descontos: roundCents(descontos),
+    liquido: roundCents(bruto - descontos)
+  };
+}
+
+// === HELPER: Constrói o objeto _pendingPayslip a partir da resposta parseada da IA.
+// Função pura, testável isoladamente. Retorna null se não houver lançamentos.
+function buildPendingPayslip(parsed) {
+  const lancamentos = Array.isArray(parsed.lancamentos) ? parsed.lancamentos : [];
+  if (lancamentos.length === 0) return null;
+  const totals = calcPayslipTotals(lancamentos);
+  return {
+    empregador: parsed.empregador || '',
+    competencia: parsed.competencia || '',
+    bruto: (parsed.bruto !== undefined && parsed.bruto !== null)
+      ? roundCents(parseFloat(parsed.bruto) || 0)
+      : totals.bruto,
+    liquido: (parsed.liquido !== undefined && parsed.liquido !== null)
+      ? roundCents(parseFloat(parsed.liquido) || 0)
+      : totals.liquido,
+    lancamentos: lancamentos
+  };
+}
+
+// === HELPER: Constrói a transação pai/filho final do contracheque para salvar em `transactions`.
+// Função pura. Retorna null se pending for inválido.
+// Invariantes garantidas:
+//   - parent.val === +liquido (positivo, crédito na conta)
+//   - sum(children.val) === parent.val (todos os filhos assinados)
+//   - children[i].type ∈ {'receita', 'despesa'}
+//   - isGroup === true, groupType === 'payslip'
+function buildPayslipTransaction(pending) {
+  if (!pending || !Array.isArray(pending.lancamentos) || pending.lancamentos.length === 0) return null;
+  const { competencia, empregador, bruto, liquido, lancamentos } = pending;
+  const dateStr = competencia ? (competencia + '-01') : new Date().toISOString().split('T')[0];
+  const mesLabel = competencia ? competencia.split('-').reverse().join('/') : '';
+  const empLabel = empregador || '—';
+
+  const children = lancamentos.map(l => {
+    const rawVal = parseFloat(l.value) || 0;
+    const type = l.type === 'receita' ? 'receita' : 'despesa';
+    const signedVal = type === 'receita' ? roundCents(rawVal) : roundCents(-rawVal);
+    const requestedCat = l.category || 'Outros';
+    const cat = (CATEGORIES[requestedCat] || requestedCat === 'Receita') ? requestedCat : 'Outros';
+    return {
+      date: l.date || dateStr,
+      name: l.name || '—',
+      cat: cat,
+      val: signedVal,
+      method: 'Folha',
+      icon: catIcon(cat),
+      color: catColor(cat),
+      type: type
+    };
+  });
+
+  return {
+    date: dateStr,
+    name: `Contracheque — ${empLabel} — ${mesLabel}`,
+    cat: 'Receita',
+    val: roundCents(liquido),
+    method: 'Folha',
+    icon: '💼',
+    color: '#34d399',
+    isGroup: true,
+    groupType: 'payslip',
+    groupMeta: {
+      competencia: competencia || '',
+      empregador: empregador || '',
+      bruto: roundCents(bruto || 0)
+    },
+    children: children
+  };
+}
+
+// === HELPER: Normaliza transações "grupo" (pai com filhos)
+// Converte o formato legado isBill (só fatura) para o modelo genérico isGroup/groupType/groupMeta.
+// Mutação in-place: roda no boot para transações vindas do localStorage ou Supabase.
+function normalizeGroupTx(t) {
+  if (!t || typeof t !== 'object') return t;
+  if (t.isBill === true && !t.isGroup) {
+    t.isGroup = true;
+    t.groupType = 'invoice';
+    t.groupMeta = {
+      dueDate: t.dueDate,
+      billMonth: t.billMonth,
+      cardDigits: t.cardDigits
+    };
+  }
+  if (Array.isArray(t.children)) {
+    t.children.forEach(c => { if (c && !c.type) c.type = 'despesa'; });
+  }
+  return t;
+}
+
 // === HELPER: Text sanitization for XSS prevention ===
 function esc(str) {
   if (str == null) return '';
@@ -197,21 +315,31 @@ function getFinancialSummary(monthKey) {
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
   });
 
-  const receitas = thisMonthTx.filter(t => t.val > 0).reduce((a, t) => a + t.val, 0);
-  const despesas = thisMonthTx.filter(t => t.val < 0).reduce((a, t) => a + Math.abs(t.val), 0);
-  const saldo = receitas - despesas;
-  const totalInvested = investments.reduce((a, i) => a + (parseFloat(i.value) || 0), 0);
-
+  // Grupos são "transparentes" para cálculo: sempre iteramos os filhos e somamos por type.
+  // Para grupos, parent.val == sum(children) por construção, então não conta o pai diretamente.
+  let receitas = 0;
+  let despesas = 0;
   const catBreakdown = {};
-  thisMonthTx.filter(t => t.val < 0).forEach(t => {
-    if (t.isBill && t.children) {
+  thisMonthTx.forEach(t => {
+    if (t.isGroup && t.children) {
       t.children.forEach(child => {
-        catBreakdown[child.cat] = (catBreakdown[child.cat] || 0) + Math.abs(child.val);
+        const v = Math.abs(child.val);
+        if (child.type === 'receita') {
+          receitas += v;
+        } else {
+          despesas += v;
+          catBreakdown[child.cat] = (catBreakdown[child.cat] || 0) + v;
+        }
       });
-    } else {
+    } else if (t.val > 0) {
+      receitas += t.val;
+    } else if (t.val < 0) {
+      despesas += Math.abs(t.val);
       catBreakdown[t.cat] = (catBreakdown[t.cat] || 0) + Math.abs(t.val);
     }
   });
+  const saldo = receitas - despesas;
+  const totalInvested = investments.reduce((a, i) => a + (parseFloat(i.value) || 0), 0);
 
   return { receitas, despesas, saldo, totalInvested, catBreakdown, goalsCount: goals.length };
 }

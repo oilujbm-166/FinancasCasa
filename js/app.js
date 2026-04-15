@@ -137,7 +137,7 @@ function getFilteredTransactions() {
     // In accrual mode: bills are exploded into children by their purchase date
     const result = [];
     transactions.forEach(t => {
-      if (t.isBill && t.children) {
+      if (t.isGroup && t.children) {
         // Include children whose purchase date matches selected month
         t.children.forEach(child => {
           if (child.date && child.date.startsWith(selectedMonth)) {
@@ -281,14 +281,15 @@ function updateHealthScore(receitas, despesas, saldo) {
 function updateBudgetFromTransactions() {
   budgetData.forEach(b => b.spent = 0);
   const monthTx = getFilteredTransactions();
-  monthTx.filter(t => t.val < 0).forEach(t => {
-    if (t.isBill && t.children) {
-      // Credit card bill: count each child in its own category
+  monthTx.forEach(t => {
+    if (t.isGroup && t.children) {
+      // Grupo transparente: itera filhos, conta só despesas no orçamento.
       t.children.forEach(child => {
+        if (child.type === 'receita') return;
         const b = budgetData.find(bd => bd.cat === child.cat);
         if (b) b.spent += Math.abs(child.val);
       });
-    } else {
+    } else if (t.val < 0) {
       const b = budgetData.find(bd => bd.cat === t.cat);
       if (b) b.spent += Math.abs(t.val);
     }
@@ -538,12 +539,12 @@ function renderRecentTx() {
     return;
   }
   el.innerHTML = recent.map(t => {
-    const childCount = t.isBill && t.children ? ` (${t.children.length} itens)` : '';
+    const childCount = t.isGroup && t.children ? ` (${t.children.length} itens)` : '';
     return `<div class="tx-item">
       <div class="tx-icon" style="background:${esc(t.color)}22">${esc(t.icon)}</div>
       <div class="tx-info">
         <div class="tx-name">${esc(t.name)}${childCount}</div>
-        <div class="tx-cat">${esc(t.cat)} · ${esc(t.method)}${t.isBill && t.dueDate ? ' · Venc. ' + t.dueDate.split('-').reverse().join('/') : ''}</div>
+        <div class="tx-cat">${esc(t.cat)} · ${esc(t.method)}${t.isGroup && t.dueDate ? ' · Venc. ' + t.dueDate.split('-').reverse().join('/') : ''}</div>
       </div>
       <div style="text-align:right">
         <div class="tx-amount" style="color:${t.val > 0 ? 'var(--accent3)' : 'var(--text)'}">${t.val > 0 ? '+' : ''}R$ ${Math.abs(t.val).toFixed(2).replace('.', ',')}</div>
@@ -606,14 +607,15 @@ function renderCatChart() {
   const existing = Chart.getChart(canvas);
   if (existing) existing.destroy();
   if (canvas.parentElement) { canvas.style.width = '100%'; canvas.style.height = '100%'; }
-  const monthTx = getFilteredTransactions().filter(t => t.val < 0);
+  const monthTx = getFilteredTransactions();
   const catTotals = {};
   monthTx.forEach(t => {
-    if (t.isBill && t.children) {
+    if (t.isGroup && t.children) {
       t.children.forEach(child => {
+        if (child.type === 'receita') return;
         catTotals[child.cat] = (catTotals[child.cat] || 0) + Math.abs(child.val);
       });
-    } else {
+    } else if (t.val < 0) {
       catTotals[t.cat] = (catTotals[t.cat] || 0) + Math.abs(t.val);
     }
   });
@@ -644,7 +646,7 @@ function renderDespesas() {
     filtered = transactions.filter(t => t.val < 0);
   } else {
     filtered = transactions.filter(t => {
-      if (t.isBill && t.children) return t.children.some(c => c.cat === currentFilter);
+      if (t.isGroup && t.children) return t.children.some(c => c.cat === currentFilter);
       return t.cat === currentFilter;
     });
   }
@@ -658,19 +660,22 @@ function renderDespesas() {
     const idx = transactions.indexOf(t);
 
     // === CREDIT CARD BILL (expandable tree) ===
-    if (t.isBill && t.children) {
+    if (t.isGroup && t.children) {
       const vencLabel = t.dueDate ? t.dueDate.split('-').reverse().join('/') : '';
       const childrenFiltered = currentFilter === 'Todos' ? t.children : t.children.filter(c => c.cat === currentFilter);
-      const childRows = childrenFiltered.map(child =>
-        `<tr class="bill-child bill-children-${idx}" style="display:none;background:var(--bg2)">
+      const childRows = childrenFiltered.map(child => {
+        const isReceita = child.type === 'receita';
+        const valColor = isReceita ? 'var(--accent3)' : 'var(--text2)';
+        const sign = isReceita ? '+' : '-';
+        return `<tr class="bill-child bill-children-${idx}" style="display:none;background:var(--bg2)">
           <td style="padding-left:32px;font-size:12px">${child.date.split('-').reverse().join('/')}</td>
           <td style="font-size:12px">${esc(child.icon)} ${esc(child.name)}</td>
           <td><span class="badge badge-blue" style="font-size:10px">${esc(child.cat)}</span></td>
-          <td style="color:var(--text2);font-size:12px">- R$ ${Math.abs(child.val).toFixed(2).replace('.', ',')}</td>
-          <td style="color:var(--text3);font-size:12px">Crédito</td>
+          <td style="color:${valColor};font-size:12px">${sign} R$ ${Math.abs(child.val).toFixed(2).replace('.', ',')}</td>
+          <td style="color:var(--text3);font-size:12px">${esc(child.method || 'Crédito')}</td>
           <td></td>
-        </tr>`
-      ).join('');
+        </tr>`;
+      }).join('');
 
       return `<tr class="bill-parent" style="cursor:pointer;background:var(--bg3)" onclick="toggleBillChildren(${idx})">
         <td>${t.date.split('-').reverse().join('/')}</td>
@@ -776,7 +781,7 @@ function closeEditModal() { document.getElementById('editModal').classList.remov
 function deleteTransaction(idx) {
   const t = transactions[idx];
   if (!t) return;
-  const msg = t.isBill && t.children
+  const msg = t.isGroup && t.children
     ? `Excluir fatura "${t.name}" com ${t.children.length} transações (R$ ${Math.abs(t.val).toFixed(2).replace('.', ',')})?`
     : `Excluir "${t.name}" (R$ ${Math.abs(t.val).toFixed(2).replace('.', ',')})?`;
   if (!confirm(msg)) return;
