@@ -465,7 +465,7 @@ function initApp() {
   // Restore API key UI (only in offline mode; cloud mode restores via decryption)
   const savedKey = getApiKey();
   if (savedKey) {
-    ANTHROPIC_API_KEY = savedKey;
+    GEMINI_API_KEY = savedKey;
     document.getElementById('apiKeyInput').value = savedKey;
     document.getElementById('apiKeyStatus').innerHTML = '<span style="color:var(--accent3)">Chave salva</span>';
     document.getElementById('connectionStatus').innerHTML = '<div class="alert alert-success">API conectada</div><div style="font-size:13px;color:var(--text2);line-height:1.6"><strong>Funcionalidades ativas:</strong><br>Consultor IA, classificação de extratos e contracheques</div>';
@@ -493,6 +493,11 @@ function initApp() {
     renderBudgetDonut();
     renderProjecoes();
   });
+
+  if (typeof updateMedicaNavVisibility === 'function') updateMedicaNavVisibility();
+
+  const perfilInput = document.getElementById('perfilCasalInput');
+  if (perfilInput && typeof perfil !== 'undefined') perfilInput.value = perfil.casal || '';
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -505,6 +510,29 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+function savePerfilCasal() {
+  const input = document.getElementById('perfilCasalInput');
+  if (!input) return;
+  const valor = input.value.trim().slice(0, 80);
+  if (typeof perfil === 'undefined') return;
+  perfil.casal = valor;
+  saveToLocalStorage();
+  const status = document.getElementById('perfilStatus');
+  if (status) {
+    status.innerHTML = valor
+      ? '<span style="color:var(--accent3)">Salvo — o Consultor IA vai usar esse nome.</span>'
+      : '<span style="color:var(--text3)">Salvo — respostas neutras (sem nomes).</span>';
+  }
+}
+
+function onToggleMedica(checkbox) {
+  if (checkbox.checked) {
+    if (typeof ativarPlanejamentoMedica === 'function') ativarPlanejamentoMedica();
+  } else {
+    if (typeof desativarPlanejamentoMedica === 'function') desativarPlanejamentoMedica();
+  }
+}
+
 // === MOBILE SIDEBAR ===
 function toggleSidebar() {
   const sb = document.getElementById('sidebar');
@@ -515,6 +543,10 @@ function toggleSidebar() {
 
 // === NAVIGATION ===
 function showSection(id, el) {
+  if (id === 'planejamentoMedica' && typeof isPlanejamentoMedicaAtivo === 'function' && !isPlanejamentoMedicaAtivo()) {
+    id = 'dashboard';
+    el = null;
+  }
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelector('#section-' + id).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));

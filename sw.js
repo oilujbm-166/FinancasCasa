@@ -1,4 +1,4 @@
-const CACHE_NAME = 'financascasa-v3';
+const CACHE_NAME = 'financascasa-v6';
 const ASSETS = [
   './',
   './index.html',
@@ -45,7 +45,7 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
   // Never cache API or Supabase calls
-  if (url.hostname === 'api.anthropic.com') return;
+  if (url.hostname === 'generativelanguage.googleapis.com') return;
   if (url.hostname.endsWith('.supabase.co')) return;
 
   // HTML: network-first (so updates are picked up)

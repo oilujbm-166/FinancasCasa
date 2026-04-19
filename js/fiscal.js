@@ -272,7 +272,7 @@ function calcularProjecaoDIRPF(input) {
 function pmDefaults() {
   return {
     bootstrap: true,
-    ativado: true,
+    ativado: false,
     vinculosRenda: [],
     carneLeao: [],
     reservaFiscal: [],
@@ -306,17 +306,28 @@ function ativarPlanejamentoMedica() {
   });
   if (typeof rebuildBudgetData === 'function') rebuildBudgetData();
   saveToLocalStorage();
+  updateMedicaNavVisibility();
   if (typeof refreshAll === 'function') refreshAll();
 }
 
 function desativarPlanejamentoMedica() {
   if (planejamentoMedica) planejamentoMedica.ativado = false;
   saveToLocalStorage();
+  updateMedicaNavVisibility();
   if (typeof refreshAll === 'function') refreshAll();
 }
 
 function isPlanejamentoMedicaAtivo() {
   return !!(planejamentoMedica && planejamentoMedica.ativado);
+}
+
+// Mostra/esconde o nav-item do módulo Médica conforme o estado atual.
+function updateMedicaNavVisibility() {
+  const nav = document.getElementById('navItemMedica');
+  if (!nav) return;
+  nav.style.display = isPlanejamentoMedicaAtivo() ? '' : 'none';
+  const toggle = document.getElementById('toggleMedica');
+  if (toggle) toggle.checked = isPlanejamentoMedicaAtivo();
 }
 
 // Injeta categorias médicas no CATEGORIES quando o módulo já foi ativado

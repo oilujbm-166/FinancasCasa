@@ -2,7 +2,10 @@
 // STORAGE.JS - Data structures and persistence
 // ========================================
 
-const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
+const GEMINI_MODEL = 'gemini-2.5-flash';
+
+// Perfil do usuário/casal — exibido no Consultor IA. Editável em Configurações.
+let perfil = { casal: '' };
 
 // === DEFAULT CATEGORIES (immutable reference) ===
 const DEFAULT_CATEGORIES = {
@@ -107,7 +110,8 @@ function saveToLocalStorage() {
   const data = {
     transactions, budgetData, goals, investments, aiHistory,
     customCategories: customCats,
-    planejamentoMedica: (typeof planejamentoMedica !== 'undefined') ? planejamentoMedica : null
+    planejamentoMedica: (typeof planejamentoMedica !== 'undefined') ? planejamentoMedica : null,
+    perfil
   };
   try {
     const json = JSON.stringify(data);
@@ -158,6 +162,9 @@ function loadFromLocalStorage() {
       if (typeof planejamentoMedica !== 'undefined' && data.planejamentoMedica) {
         planejamentoMedica = data.planejamentoMedica;
         if (typeof pmRestoreCategorias === 'function') pmRestoreCategorias();
+      }
+      if (data.perfil && typeof data.perfil === 'object') {
+        perfil = { casal: data.perfil.casal || '' };
       }
     } else {
       rebuildBudgetData();

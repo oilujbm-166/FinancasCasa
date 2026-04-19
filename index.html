@@ -6,7 +6,7 @@
 <title>FinançasCasa — Painel Financeiro Inteligente</title>
 
 <!-- Security -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.anthropic.com; img-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://generativelanguage.googleapis.com; img-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'self';">
 
 <!-- PWA -->
 <link rel="manifest" href="manifest.json">
@@ -86,7 +86,7 @@
     <div class="nav-item" onclick="showSection('orcamento',this)">
       <span class="nav-icon">◧</span> Orçamento
     </div>
-    <div class="nav-item" onclick="showSection('planejamentoMedica',this)">
+    <div class="nav-item" id="navItemMedica" style="display:none" onclick="showSection('planejamentoMedica',this)">
       <span class="nav-icon">🩺</span> Planej. Médica
     </div>
     <div class="nav-label">Finanças</div>
@@ -554,22 +554,24 @@
       <div class="grid-2">
         <div class="card">
           <div class="card-header">
-            <div class="card-title">Chave API Anthropic Claude</div>
+            <div class="card-title">Chave API Google Gemini</div>
           </div>
           <div class="form-group">
-            <label class="form-label">Cole sua chave sk-... aqui (começando com "sk-")</label>
-            <input class="form-input" id="apiKeyInput" type="password" placeholder="sk-ant-...">
+            <label class="form-label">Cole sua chave AIza... aqui (começando com "AIza")</label>
+            <input class="form-input" id="apiKeyInput" type="password" placeholder="AIza...">
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-primary" onclick="saveApiKey()" style="flex:1">Salvar Chave</button>
           </div>
           <div id="apiKeyStatus" style="margin-top:12px;font-size:12px;color:var(--text3)">—</div>
-          <div style="margin-top:16px;padding:12px;background:var(--bg3);border-radius:8px;font-size:12px">
-            <strong>Onde conseguir a chave:</strong><br>
-            1. Acesse <a href="https://console.anthropic.com" target="_blank" style="color:var(--accent);text-decoration:none">console.anthropic.com</a><br>
-            2. Faça login ou crie uma conta<br>
-            3. Vá em API Keys → Create Key<br>
-            4. Cole a chave gerada aqui
+          <div style="margin-top:16px;padding:12px;background:var(--bg3);border-radius:8px;font-size:12px;line-height:1.6">
+            <strong>Onde conseguir a chave (grátis):</strong><br>
+            1. Acesse <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--accent);text-decoration:none">aistudio.google.com/app/apikey</a><br>
+            2. Faça login com sua conta Google<br>
+            3. Clique em <strong>"Create API key"</strong><br>
+            4. Copie a chave (começa com <code>AIza</code>) e cole aqui<br>
+            <br>
+            <span style="color:var(--text3)">Tier gratuito: 1.500 requisições/dia e 1M tokens/dia. Sem cartão de crédito.</span>
           </div>
         </div>
 
@@ -584,11 +586,39 @@
 
       <div class="card" style="margin-top:24px">
         <div class="card-header">
+          <div class="card-title">Perfil</div>
+        </div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">Nome do casal (aparece no Consultor IA)</label>
+          <input class="form-input" id="perfilCasalInput" type="text" placeholder="ex.: Júlio e Elaynne" maxlength="80">
+        </div>
+        <button class="btn btn-primary" onclick="savePerfilCasal()" style="width:100%">Salvar</button>
+        <div id="perfilStatus" style="margin-top:8px;font-size:12px;color:var(--text3)">Deixe em branco para respostas neutras.</div>
+      </div>
+
+      <div class="card" style="margin-top:24px">
+        <div class="card-header">
           <div class="card-title">Categorias de Despesas</div>
           <button class="btn btn-primary" onclick="openCategoryModal()" style="font-size:12px;padding:6px 12px">+ Nova Categoria</button>
         </div>
         <div id="categoryManagerList" style="margin-top:12px"></div>
         <button class="btn btn-ghost" onclick="restoreDefaultCategories()" style="margin-top:12px;width:100%;font-size:12px">Restaurar Categorias Padrão</button>
+      </div>
+
+      <div class="card" style="margin-top:24px">
+        <div class="card-header">
+          <div class="card-title">Módulos</div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;gap:12px">
+          <div>
+            <div style="font-size:14px;color:var(--text)">🩺 Planejamento Médica</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:4px">Carnê-Leão, Livro Caixa e projeção DIRPF para médicos PF. Ative só se fizer sentido para você.</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggleMedica" onchange="onToggleMedica(this)">
+            <span class="slider"></span>
+          </label>
+        </div>
       </div>
 
       <div class="card" style="margin-top:24px">

@@ -215,7 +215,8 @@ async function saveToSupabase() {
     const blob = {
       transactions, budgetData, goals, investments, aiHistory,
       customCategories: customCats,
-      planejamentoMedica: (typeof planejamentoMedica !== 'undefined') ? planejamentoMedica : null
+      planejamentoMedica: (typeof planejamentoMedica !== 'undefined') ? planejamentoMedica : null,
+      perfil: (typeof perfil !== 'undefined') ? perfil : { casal: '' }
     };
 
     const { error } = await client
@@ -283,6 +284,10 @@ async function loadFromSupabase() {
     if (typeof planejamentoMedica !== 'undefined' && cloudData.planejamentoMedica) {
       planejamentoMedica = cloudData.planejamentoMedica;
       if (typeof pmRestoreCategorias === 'function') pmRestoreCategorias();
+    }
+
+    if (cloudData.perfil && typeof cloudData.perfil === 'object' && typeof perfil !== 'undefined') {
+      perfil = { casal: cloudData.perfil.casal || '' };
     }
 
     // Also persist to localStorage as offline cache
@@ -401,7 +406,7 @@ async function tryRestoreEncryptedApiKey(password) {
     );
 
     const plainKey = new TextDecoder().decode(decrypted);
-    ANTHROPIC_API_KEY = plainKey;
+    GEMINI_API_KEY = plainKey;
 
     // Update UI
     const input = document.getElementById('apiKeyInput');

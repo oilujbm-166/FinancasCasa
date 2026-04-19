@@ -2,7 +2,39 @@
 // API.JS - API and AI integration
 // ========================================
 
-let ANTHROPIC_API_KEY = '';
+let GEMINI_API_KEY = '';
+
+// === GEMINI ADAPTER ===
+// Encapsula a chamada ao Google Gemini. Recebe a mesma forma de mensagens que
+// o app usa internamente ({role: 'user'|'assistant', content: string}) e
+// converte para o formato do Gemini ('user'|'model', parts).
+async function callAI({ system, messages, maxTokens = 1000, jsonMode = false }) {
+  const contents = (messages || []).map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: String(m.content || '') }]
+  }));
+  const body = {
+    contents,
+    generationConfig: { maxOutputTokens: maxTokens }
+  };
+  if (system) body.systemInstruction = { parts: [{ text: system }] };
+  if (jsonMode) body.generationConfig.responseMimeType = 'application/json';
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    let msg = 'Erro na API Gemini';
+    try { const err = await res.json(); msg = err.error?.message || msg; } catch (e) {}
+    throw new Error(msg);
+  }
+  const data = await res.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  return { text, raw: data };
+}
 
 // === AI SUGGESTIONS ===
 const aiSuggestions = [
@@ -26,11 +58,11 @@ function renderAiSuggestions() {
 function saveApiKey() {
   const input = document.getElementById('apiKeyInput');
   const key = input.value.trim();
-  if (!key || !key.startsWith('sk-')) {
-    document.getElementById('apiKeyStatus').innerHTML = '<span style="color:var(--danger)">Chave inválida. Deve começar com "sk-"</span>';
+  if (!key || !key.startsWith('AIza')) {
+    document.getElementById('apiKeyStatus').innerHTML = '<span style="color:var(--danger)">Chave inválida. Deve começar com "AIza" (chave do Google AI Studio)</span>';
     return;
   }
-  ANTHROPIC_API_KEY = key;
+  GEMINI_API_KEY = key;
   try { saveApiKeyToStorage(key); } catch (e) {}
   document.getElementById('apiKeyStatus').innerHTML = '<span style="color:var(--accent3)">Chave salva com sucesso!</span>';
   document.getElementById('connectionStatus').innerHTML = '<div class="alert alert-success">API conectada — IA pronta para uso!</div><div style="font-size:13px;color:var(--text2);line-height:1.6"><strong>Funcionalidades ativas:</strong><br>Consultor IA (chat), classificação de extratos e contracheques</div>';
@@ -38,36 +70,25 @@ function saveApiKey() {
 }
 
 async function testApiConnection(key) {
+  const previous = GEMINI_API_KEY;
+  GEMINI_API_KEY = key;
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 10, messages: [{ role: 'user', content: 'oi' }] })
-    });
-    if (res.ok) {
-      document.getElementById('apiKeyStatus').innerHTML = '<span style="color:var(--accent3)">Conexão testada com sucesso!</span>';
-      document.getElementById('connectionStatus').innerHTML = '<div class="alert alert-success">API conectada e funcionando!</div><div style="font-size:13px;color:var(--text2);line-height:1.6"><strong>Funcionalidades ativas:</strong><br>Consultor IA, classificação de extratos e contracheques</div>';
-    } else {
-      const err = await res.json();
-      document.getElementById('apiKeyStatus').innerHTML = `<span style="color:var(--danger)">Erro: ${esc(err.error?.message || 'Chave inválida')}</span>`;
-      document.getElementById('connectionStatus').innerHTML = '<div class="alert alert-danger">Falha na conexão — verifique a chave</div>';
-    }
+    await callAI({ messages: [{ role: 'user', content: 'oi' }], maxTokens: 10 });
+    document.getElementById('apiKeyStatus').innerHTML = '<span style="color:var(--accent3)">Conexão testada com sucesso!</span>';
+    document.getElementById('connectionStatus').innerHTML = '<div class="alert alert-success">API conectada e funcionando!</div><div style="font-size:13px;color:var(--text2);line-height:1.6"><strong>Funcionalidades ativas:</strong><br>Consultor IA, classificação de extratos e contracheques</div>';
   } catch (e) {
-    document.getElementById('apiKeyStatus').innerHTML = `<span style="color:var(--danger)">Erro de rede: ${esc(e.message)}</span>`;
+    GEMINI_API_KEY = previous;
+    document.getElementById('apiKeyStatus').innerHTML = `<span style="color:var(--danger)">Erro: ${esc(e.message || 'Chave inválida')}</span>`;
+    document.getElementById('connectionStatus').innerHTML = '<div class="alert alert-danger">Falha na conexão — verifique a chave</div>';
   }
 }
 
 function checkApiKey() {
-  if (!ANTHROPIC_API_KEY) {
+  if (!GEMINI_API_KEY) {
     const stored = getApiKey();
-    if (stored) ANTHROPIC_API_KEY = stored;
+    if (stored) GEMINI_API_KEY = stored;
   }
-  if (!ANTHROPIC_API_KEY) {
+  if (!GEMINI_API_KEY) {
     alert('Configure sua chave API primeiro! Vá em Configurações no menu lateral.');
     showSection('config', null);
     return false;
@@ -111,8 +132,12 @@ PROJEÇÕES (cenário moderado, 12 meses):
   } catch (e) {}
 
   const monthLabel = selectedMonth || new Date().toISOString().slice(0, 7);
+  const nomes = (perfil && perfil.casal && perfil.casal.trim()) ? perfil.casal.trim() : null;
+  const apresentacao = nomes
+    ? `O casal chama-se ${nomes}.`
+    : `Trate o(s) usuário(s) de forma neutra, sem assumir nomes.`;
   return `Você é um consultor financeiro pessoal especializado em finanças domésticas brasileiras.
-O casal chama-se Júlio e Elaynne. Dados financeiros do mês ${monthLabel}:
+${apresentacao} Dados financeiros do mês ${monthLabel}:
 - Receitas: R$ ${summary.receitas.toFixed(0)}
 - Despesas: R$ ${summary.despesas.toFixed(0)}
 - Saldo do mês: R$ ${summary.saldo.toFixed(0)}
@@ -151,27 +176,12 @@ async function askAI(msg) {
   aiHistory.push({ role: 'user', content: msg });
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 1000,
-        system: buildSystemPrompt(),
-        messages: aiHistory
-      })
+    const { text } = await callAI({
+      system: buildSystemPrompt(),
+      messages: aiHistory,
+      maxTokens: 1000
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error?.message || 'Erro na API');
-    }
-    const data = await res.json();
-    const reply = data.content?.[0]?.text || 'Não consegui processar. Tente novamente.';
+    const reply = text || 'Não consegui processar. Tente novamente.';
     aiHistory.push({ role: 'assistant', content: reply });
     // Keep only last 20 messages to avoid localStorage bloat and API cost
     const AI_HISTORY_LIMIT = 20;
@@ -216,18 +226,7 @@ async function processarExtrato() {
   const validCats = Object.keys(CATEGORIES).join(', ');
 
   try {
-    const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 8000,
-        system: `Você é um sistema inteligente de classificação financeira brasileira. Extraia TODOS os lançamentos do documento.
+    const systemPrompt = `Você é um sistema inteligente de classificação financeira brasileira. Extraia TODOS os lançamentos do documento.
 
 TIPOS DE DOCUMENTOS SUPORTADOS: Extrato bancário, Fatura de cartão de crédito, Contracheque/Holerite, Documento de investimento.
 
@@ -275,19 +274,22 @@ Use a data do pagamento (ou primeiro dia do mês de competência se a data não 
 Categorias válidas para despesas: ${validCats}
 Para receitas use category "Receita" com type "receita".
 
-IMPORTANTE: Datas em YYYY-MM-DD. Value SEMPRE positivo (o sinal é inferido pelo type). Em fatura de cartão todas as transações são despesa (não precisa do campo type). Extraia TODAS as transações, não resuma.`,
-        messages: [{ role: 'user', content: `Analise e classifique TODAS as transações deste documento:\n\n${text}` }]
-      })
+IMPORTANTE: Datas em YYYY-MM-DD. Value SEMPRE positivo (o sinal é inferido pelo type). Em fatura de cartão todas as transações são despesa (não precisa do campo type). Extraia TODAS as transações, não resuma. Responda APENAS com o JSON, sem texto antes ou depois.`;
+
+    const { text: responseText } = await callAI({
+      system: systemPrompt,
+      messages: [{ role: 'user', content: `Analise e classifique TODAS as transações deste documento:\n\n${text}` }],
+      maxTokens: 8000,
+      jsonMode: true
     });
-    if (!apiRes.ok) {
-      const err = await apiRes.json();
-      throw new Error(err.error?.message || 'Erro na análise');
+    let parsed;
+    try {
+      parsed = JSON.parse(responseText);
+    } catch (e) {
+      const jsonMatch = responseText.match(/\{[\s\S]*("tipo"|"transacoes")[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('IA não retornou JSON válido');
+      parsed = JSON.parse(jsonMatch[0]);
     }
-    const data = await apiRes.json();
-    const responseText = data.content?.[0]?.text || '';
-    const jsonMatch = responseText.match(/\{[\s\S]*("tipo"|"transacoes")[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('IA não retornou JSON válido');
-    const parsed = JSON.parse(jsonMatch[0]);
 
     // === FATURA DE CARTÃO (grouped bill) ===
     if (parsed.tipo === 'fatura_cartao') {
