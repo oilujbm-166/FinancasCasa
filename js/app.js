@@ -498,6 +498,9 @@ function initApp() {
 
   const perfilInput = document.getElementById('perfilCasalInput');
   if (perfilInput && typeof perfil !== 'undefined') perfilInput.value = perfil.casal || '';
+
+  // Popula sidebar (avatar + nome do lar) a partir de perfil.casal
+  refreshProfileDisplay();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -510,6 +513,40 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+// === HELPER: Deriva iniciais para o avatar a partir do nome do casal/lar.
+// Ignora conectivos comuns em PT-BR: "&", "+", "e", "ou", "y", "da/de/do/das/dos", "a/o/as/os".
+// Exemplos:
+//   "Júlio & Elaynne"  → "JE"
+//   "João e Maria"     → "JM"
+//   "Família Silva"    → "FS"
+//   "Ana"              → "A"
+//   ""                 → "" (caller aplica fallback)
+// Função pura, testável isoladamente.
+function deriveInitials(name) {
+  if (!name || typeof name !== 'string') return '';
+  const conectivos = new Set(['&', '+', 'e', 'ou', 'y', 'da', 'de', 'do', 'das', 'dos', 'a', 'o', 'as', 'os']);
+  const tokens = name
+    .split(/[\s&+]+/)
+    .map(t => t.trim())
+    .filter(t => t && !conectivos.has(t.toLowerCase()));
+  if (tokens.length === 0) return '';
+  return tokens.slice(0, 2).map(t => t.charAt(0).toUpperCase()).join('');
+}
+
+// === HELPER: Atualiza a sidebar (avatar + nome) a partir de perfil.casal.
+// Chamada após: carregar dados (initApp), salvar perfil (savePerfilCasal), sync cloud (supabase.js).
+// Fallback quando perfil.casal vazio: "Minha Casa" / "MC" — neutro, permite que qualquer família
+// use o app sem ver o nome dos outros.
+function refreshProfileDisplay() {
+  const nomeConfig = (typeof perfil !== 'undefined' && perfil && perfil.casal) ? perfil.casal.trim() : '';
+  const nomeDisplay = nomeConfig || 'Minha Casa';
+  const initials = deriveInitials(nomeConfig) || 'MC';
+  const avatarEl = document.getElementById('profileAvatar');
+  const nameEl = document.getElementById('profileName');
+  if (avatarEl) avatarEl.textContent = initials;
+  if (nameEl) nameEl.textContent = nomeDisplay;
+}
+
 function savePerfilCasal() {
   const input = document.getElementById('perfilCasalInput');
   if (!input) return;
@@ -517,6 +554,7 @@ function savePerfilCasal() {
   if (typeof perfil === 'undefined') return;
   perfil.casal = valor;
   saveToLocalStorage();
+  refreshProfileDisplay();
   const status = document.getElementById('perfilStatus');
   if (status) {
     status.innerHTML = valor

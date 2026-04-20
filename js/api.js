@@ -298,7 +298,11 @@ async function askAI(msg) {
   aiProcessing = true;
 
   const msgs = document.getElementById('aiMessages');
-  msgs.innerHTML += `<div class="msg user fade-in"><div class="msg-avatar">JE</div><div class="msg-bubble">${esc(msg)}</div></div>`;
+  // Iniciais dinâmicas do casal/lar (derivadas de perfil.casal); fallback "MC" pra Minha Casa
+  const userInitials = (typeof deriveInitials === 'function' && typeof perfil !== 'undefined')
+    ? (deriveInitials(perfil.casal || '') || 'MC')
+    : 'MC';
+  msgs.innerHTML += `<div class="msg user fade-in"><div class="msg-avatar">${esc(userInitials)}</div><div class="msg-bubble">${esc(msg)}</div></div>`;
 
   const typingId = 'typing_' + Date.now();
   msgs.innerHTML += `<div class="msg ai fade-in" id="${typingId}"><div class="msg-avatar">✦</div><div class="msg-bubble"><div class="typing-dots"><span></span><span></span><span></span></div></div></div>`;

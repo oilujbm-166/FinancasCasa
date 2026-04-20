@@ -290,6 +290,12 @@ async function loadFromSupabase() {
       perfil = { casal: cloudData.perfil.casal || '' };
     }
 
+    // Sidebar (avatar + nome do lar) pode ter mudado com o sync — refresca se a função já carregou
+    if (typeof refreshProfileDisplay === 'function') refreshProfileDisplay();
+    // Também atualiza o input de Configurações caso esteja aberto
+    const perfilInput = document.getElementById('perfilCasalInput');
+    if (perfilInput && typeof perfil !== 'undefined') perfilInput.value = perfil.casal || '';
+
     // Also persist to localStorage as offline cache
     saveToLocalStorage();
 

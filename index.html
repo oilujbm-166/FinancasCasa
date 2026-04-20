@@ -112,9 +112,11 @@
       <span id="syncIcon" style="color:var(--text3)">●</span> <span id="syncText">Offline</span>
     </div>
     <div class="profile-pill">
-      <div class="avatar">JE</div>
+      <!-- Conteúdo populado dinamicamente por refreshProfileDisplay() a partir de perfil.casal.
+           Fallback quando vazio: "Minha Casa" / "MC". -->
+      <div class="avatar" id="profileAvatar">MC</div>
       <div>
-        <div class="profile-name">Júlio & Elaynne</div>
+        <div class="profile-name" id="profileName">Minha Casa</div>
         <div class="profile-plan">✦ Família</div>
       </div>
     </div>

@@ -1,6 +1,7 @@
+// v8: Perfil dinâmico na sidebar — avatar e nome do lar derivados de perfil.casal.
 // v7: Fase 0 — retry com backoff + fallback entre modelos Gemini + mensagens de erro classificadas.
-// Bump força reinstalação do SW para que browsers existentes peguem js/api.js e js/storage.js novos.
-const CACHE_NAME = 'financascasa-v7';
+// Bump força reinstalação do SW para que browsers existentes peguem os JS novos.
+const CACHE_NAME = 'financascasa-v8';
 const ASSETS = [
   './',
   './index.html',
