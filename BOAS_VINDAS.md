@@ -1,138 +1,118 @@
-# Bem-vindos ao FinançasCasa 🎉
+# FinançasCasa — guia de uso
 
-> Um app de finanças pessoais feito para casais que organizam as contas juntos. Simples, privado e com uma IA que entende o dia a dia financeiro brasileiro.
+App de finanças pessoais para casais que compartilham as contas. Roda no navegador e instala como app no celular. Os dados ficam na nuvem criptografada, com sincronização automática entre os dispositivos.
 
 ---
 
-## O que vocês vão ter nas mãos
+## O que o app faz
 
-- **Um painel único** com receitas, despesas, orçamento por categoria, metas, investimentos e projeções.
-- **IA integrada** para responder perguntas como "como está nossa saúde financeira?", "onde gastamos demais?", "quanto dá para investir por mês?".
-- **Importação inteligente**: cola o texto do extrato, da fatura de cartão ou do contracheque — a IA identifica e categoriza tudo.
-- **Funciona offline**: instala no celular como app, os dados ficam no aparelho e sincronizam para a nuvem quando tem internet.
-- **Privado por padrão**: os dados de vocês só vocês acessam. Criptografia de ponta a ponta na chave da IA.
+- Painel único com receitas, despesas, orçamento por categoria, metas, investimentos e projeções de 12 meses.
+- IA integrada para responder perguntas sobre os números ("onde estamos gastando mais?", "quanto dá para investir?").
+- Importação automática de extratos bancários, faturas de cartão e contracheques — cola o texto, a IA classifica.
+- Funciona offline. Os dados ficam no celular e sincronizam quando voltar a internet.
 
 ---
 
 ## Setup em 10 minutos
 
-### Passo 1 — Criar a conta (3 min)
+### 1. Criar a conta
 
 1. Acesse: **https://oilujbm-166.github.io/FinancasCasa/**
-2. Clique em **"Criar Conta"**.
-3. Coloque:
-   - **E-mail** (pode ser o do casal ou de um dos dois — o importante é que os dois vão usar esse login)
-   - **Senha com no mínimo 12 caracteres**. Sugestão: frase longa e memorável, ex.: `nossacasaem2026!`
-4. Confirme o e-mail que chegou na caixa de entrada (pode ir para spam).
-5. Faça login no app.
+2. Clique em **Criar Conta**.
+3. Informe:
+   - **E-mail** (vai ser o login compartilhado pelos dois)
+   - **Senha com no mínimo 12 caracteres**
+4. Confirme o e-mail (verifique o spam se não chegar).
+5. Entre no app.
 
-> **Importante — vocês vão compartilhar um único login.** Combinados os dados (e-mail + senha), guardem num gerenciador de senhas ou num lugar seguro que os dois acessem. Se um trocar a senha, avise o outro.
+> Os dois usam o **mesmo login**. Guardem as credenciais num gerenciador de senhas ou local seguro. Se um trocar a senha, avise o outro.
 
-### Passo 2 — Ativar a IA (grátis, 5 min)
+### 2. Ativar a IA (grátis)
 
-A IA que responde as perguntas e classifica os extratos é o **Google Gemini**. Vocês precisam de uma chave própria, **100% gratuita**, sem cartão de crédito.
+A IA do app é o Google Gemini. Cada usuário precisa de uma chave própria, gratuita e sem cartão de crédito.
 
 1. Acesse: **https://aistudio.google.com/app/apikey**
-2. Entre com uma conta Google qualquer (a mesma do Gmail serve).
-3. Clique em **"Create API key"**.
-4. Se pedir, aceite criar um projeto Google Cloud (é automático).
-5. **Copie a chave** que aparece (começa com `AIza...`).
-6. De volta ao app, vá em **Configurações** (ícone ⚙ no menu) → colar a chave no campo **"Chave API Google Gemini"** → **Salvar Chave**.
-7. Deve aparecer "Conexão testada com sucesso!" em verde.
+2. Entre com uma conta Google.
+3. Clique em **Create API key**.
+4. Aceite criar um projeto Google Cloud (é automático).
+5. Copie a chave (começa com `AIza`).
+6. No app: **Configurações** → campo **Chave API Google Gemini** → colar → **Salvar Chave**.
+7. A confirmação "Conexão testada com sucesso" deve aparecer em verde.
 
-> **Tier gratuito do Gemini**: 1.500 requisições/dia e 1 milhão de tokens/dia. Na prática, dá para classificar dezenas de extratos e conversar bastante com a IA sem nunca pagar nada.
+> Tier gratuito: 1.500 requisições/dia e 1 milhão de tokens/dia. Suficiente para uso diário sem custo.
 
-### Passo 3 — Instalar no celular como app (2 min)
+### 3. Instalar no celular
 
-O FinançasCasa é uma **PWA** (app progressivo). Instala na tela inicial como qualquer app, mas sem precisar de loja.
+O app é uma PWA — instala na tela inicial, sem loja.
 
-**No iPhone (Safari):**
-1. Abra o app no Safari (tem que ser Safari, não Chrome).
-2. Toque no ícone de compartilhar (quadrado com seta pra cima).
-3. Role e toque em **"Adicionar à Tela de Início"**.
-4. Confirme. O ícone aparece na tela igual aos outros apps.
+**iPhone (Safari):** ícone de compartilhar → **Adicionar à Tela de Início**.
 
-**No Android (Chrome):**
-1. Abra o app no Chrome.
-2. Vai aparecer um banner **"Instalar app"** na parte de baixo — toque.
-3. Ou: menu ⋮ (três pontinhos) → **"Instalar app"** / **"Adicionar à tela inicial"**.
+**Android (Chrome):** banner **Instalar app** que aparece na parte inferior, ou menu ⋮ → **Instalar app**.
 
-Depois de instalado, abre direto sem passar pelo navegador, e funciona mesmo offline.
+### 4. Personalizar (opcional)
 
-### Passo 4 — Personalizar (opcional, 1 min)
-
-Em **Configurações → Perfil**, coloquem o nome do casal (ex.: `Ana e Pedro`). A IA vai usar esse nome para personalizar as respostas.
+Em **Configurações → Perfil**, coloquem o nome do casal. A IA usa esse nome nas respostas.
 
 ---
 
-## A primeira semana — como usar
+## Começando
 
-Sugestão de roteiro para tirar o melhor do app nos primeiros dias:
+Roteiro sugerido para os primeiros dias:
 
-**Dia 1 — Importar o extrato do mês atual**
-- Vá em **Importar** no menu.
-- Abra o app do banco de vocês, vá no extrato do mês, copie tudo (ou salve em PDF e arraste).
-- Cole no campo do FinançasCasa e clique **"Analisar com IA"**.
-- Revise a categorização (pode editar qualquer categoria antes de salvar).
-- **Salvar Todas**.
+**Importar o extrato do mês**
+- Aba **Importar** → cole o texto do extrato → **Analisar com IA**.
+- Revise a classificação e clique em **Salvar Todas**.
 
-**Dia 2 — Importar a fatura do cartão**
-- Mesma aba Importar, mas cola o texto da fatura. A IA detecta que é cartão de crédito e agrupa tudo sob uma transação-pai de "Fatura Cartão".
+**Importar a fatura do cartão**
+- Mesma aba. A IA detecta que é fatura, agrupa as compras sob uma transação-pai.
 
-**Dia 3 — Definir orçamento**
-- Vá em **Orçamento** e coloque um limite mensal para as categorias principais (Alimentação, Transporte, Moradia, Lazer).
-- O app vai te avisar quando estiver se aproximando do limite.
+**Definir orçamento**
+- Aba **Orçamento** → coloque limites nas categorias principais (Alimentação, Moradia, Transporte, Lazer).
 
-**Dia 4 — Criar uma meta**
-- Em **Metas**, crie algo concreto: "Reserva de emergência — R$ 30.000" ou "Viagem fim de ano — R$ 8.000".
-- Atualize o valor guardado conforme for poupando.
+**Criar uma meta**
+- Aba **Metas** → algo concreto como "Reserva de emergência — R$ 30.000" ou "Viagem — R$ 8.000".
 
-**Dia 5 em diante — conversa com a IA**
-- Abra **Consultor IA** e pergunte coisas como:
-  - "Como está nossa saúde financeira este mês?"
-  - "Onde estamos gastando mais que deveríamos?"
-  - "Quanto conseguimos investir por mês no ritmo atual?"
-  - "Quando atingimos a reserva de emergência?"
+**Consultar a IA**
+- Aba **Consultor IA**. Perguntas específicas funcionam melhor: "quanto gastamos com Alimentação em março?" traz resposta mais útil que "como estamos?".
 
 ---
 
-## Conta compartilhada — o que saber ⚠️
+## Conta compartilhada
 
-Como os dois usam o **mesmo login**, os dados são sempre os mesmos nos dois celulares. Isso é ótimo, mas tem uma consideração:
+Os dois usam o mesmo login, então os dados são sempre os mesmos em todos os dispositivos. Pontos de atenção:
 
-- **Se os dois editarem ao mesmo tempo**, o último a salvar "ganha" (sobrescreve). Na prática isso raramente é um problema — são edições rápidas, e sincronizam em meio segundo. Mas evitem, por exemplo, importar dois extratos simultaneamente em celulares diferentes. **Combinem: um importa de cada vez.**
-- **Se um de vocês está sem internet**, o app continua funcionando localmente. Quando voltar online, sincroniza. Mas se o outro também editou nesse meio tempo... pode dar conflito. Regra de ouro: em dúvida, faça backup antes (veja abaixo).
+- **Edição simultânea**: se os dois editarem ao mesmo tempo, o último a salvar sobrescreve. Combinem quem importa cada coisa.
+- **Offline**: o app funciona sem internet e sincroniza depois. Se os dois editarem em paralelo sem conexão, pode haver conflito. Em dúvida, faça backup antes.
 
 ---
 
-## Backup manual — faça toda semana 💾
+## Backup
 
-Os dados ficam na nuvem criptografada, mas é sempre bom ter um backup local.
+Os dados ficam na nuvem criptografada, mas um backup local semanal é recomendado.
 
 1. **Configurações → Backup e Restauração → Fazer Backup**.
-2. Um arquivo `.json` é baixado. Guardem no Google Drive, iCloud ou e-mail.
-3. Se algum dia precisar restaurar: mesma tela → **Restaurar Backup** → selecionar o arquivo.
+2. Um arquivo `.json` é baixado. Guardem no Drive, iCloud ou e-mail.
+3. Para restaurar: mesma tela → **Restaurar Backup**.
 
-Façam backup pelo menos **1× por semana**, principalmente antes de importações grandes.
-
----
-
-## Privacidade e segurança 🔒
-
-- **Os dados de vocês são só de vocês.** Cada usuário tem uma caixa isolada — ninguém, nem mesmo eu (Júlio), vê o que vocês lançam no app.
-- **A chave da IA que vocês colaram é criptografada** (AES-GCM) antes de sair do celular. Só vocês, com a senha do login, conseguem decifrá-la. Se esquecerem a senha, a chave se perde também — aí é só gerar outra no AI Studio (de graça).
-- **As conversas com a IA Gemini** vão direto do celular de vocês para os servidores do Google, usando a chave de vocês. Nunca passam por mim ou por nenhum outro servidor.
-- **Fonte aberta**: o código do app é público (https://github.com/oilujbm-166/FinancasCasa). Se tiverem curiosidade técnica, dá para auditar.
+Façam backup pelo menos uma vez por semana, e sempre antes de importações grandes.
 
 ---
 
-## Dicas que fazem diferença
+## Privacidade
 
-- **Importe logo o mês inteiro**, não transação por transação. A IA acerta ~95% das categorias e vocês só revisam o que ficou estranho.
-- **Categorias personalizadas**: em Configurações → Categorias, crie categorias que façam sentido para vocês (ex.: "Pet", "Academia", "Presente"). O app já vem com as básicas.
-- **Perguntas específicas funcionam melhor**: "quanto gastamos com Alimentação em março?" traz resposta mais útil que "como estamos?".
-- **Projeções**: a aba **Projeções** mostra para onde o ritmo atual leva em 12 meses. Ótimo para discussões do tipo "se continuarmos assim, daqui a quanto a gente paga a casa / compra o carro / sai de férias".
-- **Hard refresh** (puxar a tela pra baixo com força, ou Ctrl+Shift+R no computador) se alguma vez o app não atualizar após um update.
+- Cada usuário tem uma caixa de dados isolada. Os dados de vocês não são acessíveis a mim nem a nenhum outro usuário.
+- A chave da IA é criptografada (AES-GCM) no celular antes de ser armazenada. Só quem tem a senha do login consegue decifrar. Se esquecerem a senha, a chave se perde — basta gerar outra no AI Studio (gratuito).
+- As conversas com a IA vão direto do celular para os servidores do Google, usando a chave de vocês. Não passam por nenhum servidor intermediário.
+- Código-fonte público: **https://github.com/oilujbm-166/FinancasCasa**.
+
+---
+
+## Dicas de uso
+
+- Importem o mês inteiro de uma vez, não lançamento por lançamento. A IA acerta a maior parte das categorias.
+- Em **Configurações → Categorias**, criem categorias próprias (ex.: Pet, Academia, Presente).
+- A aba **Projeções** mostra onde o ritmo atual leva em 12 meses — útil para decisões de médio prazo.
+- Se o app não atualizar depois de uma versão nova: hard refresh (puxar a tela pra baixo com força, ou `Ctrl+Shift+R` no computador).
 
 ---
 
@@ -140,33 +120,29 @@ Façam backup pelo menos **1× por semana**, principalmente antes de importaçõ
 
 | Sintoma | O que fazer |
 |---|---|
-| "Não consegui logar" | Confirme que validou o e-mail. Se sim, peça reset de senha na tela de login (se tiver) ou use o link de recuperação. |
-| "IA não responde" | Confira a chave em Configurações. Se expirou ou foi apagada, gere outra em aistudio.google.com/app/apikey. |
-| "Importei errado, como desfazer?" | Cada transação tem um botão ✕ para remover. Para apagar todas de uma importação, vá na aba Despesas/Receitas e remova uma a uma, ou restaure um backup anterior. |
-| "Perdi um lançamento" | Se tiver backup recente: Configurações → Restaurar Backup. |
+| Não consegui logar | Confirme o e-mail. Se mesmo assim não funcionar, use o link de recuperação de senha. |
+| IA não responde | Confira a chave em Configurações. Se expirou, gere outra em aistudio.google.com/app/apikey. |
+| Importei algo errado | Cada transação tem um botão para remover. Ou restaure um backup anterior. |
+| Perdi um lançamento | Configurações → Restaurar Backup. |
 
 ---
 
 ## Contato
 
-Qualquer dúvida, sugestão ou bug encontrado: me avisem. Estou cuidando da manutenção do app e adoro feedback real de quem usa.
-
-**Bom uso — que ajude a família de vocês a dormir mais tranquilos com o dinheiro.**
+Dúvidas, sugestões ou bugs: me avisem.
 
 ---
 
-### Versão curta para copiar no WhatsApp
+### Versão curta para WhatsApp
 
-> Oi! 👋 Bem-vindos ao FinançasCasa, o app que eu criei para organizar as finanças da casa.
+> FinançasCasa — app de finanças pessoais para casais.
 >
-> **1) Criar conta**: https://oilujbm-166.github.io/FinancasCasa/ → "Criar Conta" → senha com 12+ caracteres → confirmar e-mail.
+> **1) Criar conta**: https://oilujbm-166.github.io/FinancasCasa/ → Criar Conta → senha com 12+ caracteres → confirmar e-mail.
 >
-> **2) Ativar IA grátis**: https://aistudio.google.com/app/apikey → "Create API key" → colar a chave (começa com AIza) em Configurações → Chave API Gemini → Salvar.
+> **2) Ativar IA grátis**: https://aistudio.google.com/app/apikey → Create API key → colar a chave (começa com AIza) em Configurações → Chave API Gemini → Salvar.
 >
-> **3) Instalar no celular**: abra no Safari (iPhone) ou Chrome (Android) → "Adicionar à tela inicial".
+> **3) Instalar no celular**: abrir no Safari (iPhone) ou Chrome (Android) → Adicionar à tela inicial.
 >
-> **4) Importar o primeiro extrato**: aba Importar → colar texto do extrato → IA analisa e categoriza.
+> **4) Importar extrato**: aba Importar → colar texto → IA classifica.
 >
-> Guia completo + dicas: [link para este documento, se for publicar]
->
-> Qualquer dúvida, me chama.
+> Guia completo em anexo.
