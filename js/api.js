@@ -8,6 +8,72 @@ let GEMINI_API_KEY = '';
 // Encapsula a chamada ao Google Gemini. Recebe a mesma forma de mensagens que
 // o app usa internamente ({role: 'user'|'assistant', content: string}) e
 // converte para o formato do Gemini ('user'|'model', parts).
+//
+// Resiliência (Fase 0):
+//   1. Classifica erros HTTP em 'transient'/'invalid_key'/'quota'/'bad_request'/'unknown'.
+//   2. Em transientes (503/429/5xx/UNAVAILABLE), faz retry com backoff exponencial 1s/2s/4s (+ jitter).
+//   3. Se todos os retries falharem no modelo atual, tenta o próximo de GEMINI_MODELS.
+//   4. Erros permanentes (401/403/400 de chave, cota esgotada) falham rápido sem retry.
+// O Error propagado traz: err.kind, err.friendlyMessage, err.rawMsg, err.status, err.allModelsFailed.
+
+function classifyGeminiError(status, errBody) {
+  const rawMsg = (errBody && errBody.error && errBody.error.message || '').toString();
+  const lowerMsg = rawMsg.toLowerCase();
+  const gStatus = (errBody && errBody.error && errBody.error.status || '').toString();
+
+  // Cota gratuita diária esgotada — 429 com "quota"/"exceeded" OU RESOURCE_EXHAUSTED com menção a quota
+  if ((status === 429 && (lowerMsg.includes('quota') || lowerMsg.includes('exceeded'))) ||
+      (gStatus === 'RESOURCE_EXHAUSTED' && lowerMsg.includes('quota'))) {
+    return {
+      kind: 'quota',
+      retryable: false,
+      friendlyMessage: 'Você atingiu o limite gratuito diário do Gemini. Tente novamente amanhã ou gere uma nova chave no Google AI Studio.',
+      rawMsg
+    };
+  }
+
+  // Chave inválida ou não autorizada
+  if (status === 401 || status === 403 ||
+      (status === 400 && (lowerMsg.includes('api key') || lowerMsg.includes('api_key') || lowerMsg.includes('invalid key') || lowerMsg.includes('api-key')))) {
+    return {
+      kind: 'invalid_key',
+      retryable: false,
+      friendlyMessage: 'Sua chave de API parece inválida ou expirou. Verifique em Configurações.',
+      rawMsg
+    };
+  }
+
+  // Transitórios — vale retry (sobrecarga do modelo, erro interno, gateway timeout)
+  if (status === 503 || status === 429 || status === 500 || status === 502 || status === 504 ||
+      gStatus === 'UNAVAILABLE' || gStatus === 'RESOURCE_EXHAUSTED' || gStatus === 'INTERNAL' || gStatus === 'DEADLINE_EXCEEDED') {
+    return {
+      kind: 'transient',
+      retryable: true,
+      friendlyMessage: 'A IA do Google está sobrecarregada agora. Tente de novo em 1-2 minutos — não é problema com sua chave.',
+      rawMsg
+    };
+  }
+
+  // 400 que não é de chave — provavelmente payload inválido
+  if (status === 400) {
+    return {
+      kind: 'bad_request',
+      retryable: false,
+      friendlyMessage: rawMsg ? `A IA recusou o pedido: ${rawMsg}` : 'A IA recusou o pedido por payload inválido.',
+      rawMsg
+    };
+  }
+
+  return {
+    kind: 'unknown',
+    retryable: false,
+    friendlyMessage: rawMsg ? `Erro inesperado da IA: ${rawMsg}` : 'Erro inesperado ao contatar a IA.',
+    rawMsg
+  };
+}
+
+function _aiSleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 async function callAI({ system, messages, maxTokens = 1000, jsonMode = false }) {
   const contents = (messages || []).map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
@@ -19,21 +85,77 @@ async function callAI({ system, messages, maxTokens = 1000, jsonMode = false }) 
   };
   if (system) body.systemInstruction = { parts: [{ text: system }] };
   if (jsonMode) body.generationConfig.responseMimeType = 'application/json';
+  const payload = JSON.stringify(body);
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) {
-    let msg = 'Erro na API Gemini';
-    try { const err = await res.json(); msg = err.error?.message || msg; } catch (e) {}
-    throw new Error(msg);
+  const models = (typeof GEMINI_MODELS !== 'undefined' && Array.isArray(GEMINI_MODELS) && GEMINI_MODELS.length)
+    ? GEMINI_MODELS
+    : [GEMINI_MODEL];
+  const MAX_RETRIES_PER_MODEL = 3;
+  const BACKOFF_MS = [1000, 2000, 4000]; // jitter ±20% aplicado em runtime
+  let lastClassified = null;
+
+  for (const model of models) {
+    for (let attempt = 0; attempt < MAX_RETRIES_PER_MODEL; attempt++) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
+      let res;
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload
+        });
+      } catch (netErr) {
+        // Falha de rede (offline, DNS, CORS bloqueado) — tratado como transitório
+        lastClassified = {
+          kind: 'transient',
+          retryable: true,
+          friendlyMessage: 'Falha de rede ao contatar a IA. Verifique sua conexão e tente de novo.',
+          rawMsg: (netErr && netErr.message) || 'network error'
+        };
+        if (attempt < MAX_RETRIES_PER_MODEL - 1) {
+          const base = BACKOFF_MS[attempt] || 4000;
+          const jitter = base * 0.2 * (Math.random() * 2 - 1);
+          await _aiSleep(Math.max(0, base + jitter));
+          continue;
+        }
+        break; // esgotou retries: tenta próximo modelo
+      }
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        return { text, raw: data, modelUsed: model };
+      }
+      let errBody = null;
+      try { errBody = await res.json(); } catch (e) {}
+      const classified = classifyGeminiError(res.status, errBody);
+      lastClassified = classified;
+      if (!classified.retryable) {
+        // Erro permanente: falhar rápido, sem tentar outros modelos (não adiantaria)
+        const err = new Error(classified.friendlyMessage);
+        err.kind = classified.kind;
+        err.friendlyMessage = classified.friendlyMessage;
+        err.rawMsg = classified.rawMsg;
+        err.status = res.status;
+        throw err;
+      }
+      // Transitório: backoff + retry no mesmo modelo; se esgotou retries, cai para o próximo modelo
+      if (attempt < MAX_RETRIES_PER_MODEL - 1) {
+        const base = BACKOFF_MS[attempt] || 4000;
+        const jitter = base * 0.2 * (Math.random() * 2 - 1);
+        await _aiSleep(Math.max(0, base + jitter));
+      }
+    }
   }
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  return { text, raw: data };
+
+  // Todos os modelos esgotaram retries — erro transitório persistente
+  const finalMsg = (lastClassified && lastClassified.friendlyMessage)
+    || 'A IA do Google está indisponível no momento. Tente novamente em alguns minutos.';
+  const err = new Error(finalMsg);
+  err.kind = (lastClassified && lastClassified.kind) || 'transient';
+  err.friendlyMessage = finalMsg;
+  err.rawMsg = (lastClassified && lastClassified.rawMsg) || '';
+  err.allModelsFailed = true;
+  throw err;
 }
 
 // === AI SUGGESTIONS ===
@@ -77,9 +199,18 @@ async function testApiConnection(key) {
     document.getElementById('apiKeyStatus').innerHTML = '<span style="color:var(--accent3)">Conexão testada com sucesso!</span>';
     document.getElementById('connectionStatus').innerHTML = '<div class="alert alert-success">API conectada e funcionando!</div><div style="font-size:13px;color:var(--text2);line-height:1.6"><strong>Funcionalidades ativas:</strong><br>Consultor IA, classificação de extratos e contracheques</div>';
   } catch (e) {
-    GEMINI_API_KEY = previous;
-    document.getElementById('apiKeyStatus').innerHTML = `<span style="color:var(--danger)">Erro: ${esc(e.message || 'Chave inválida')}</span>`;
-    document.getElementById('connectionStatus').innerHTML = '<div class="alert alert-danger">Falha na conexão — verifique a chave</div>';
+    // Só reverter a chave se o erro for de chave inválida. Se for sobrecarga transitória,
+    // manter a chave nova — ela pode estar correta, o Gemini que está fora do ar agora.
+    const friendly = e.friendlyMessage || e.message || 'Erro desconhecido';
+    if (e.kind === 'invalid_key') {
+      GEMINI_API_KEY = previous;
+      document.getElementById('apiKeyStatus').innerHTML = `<span style="color:var(--danger)">${esc(friendly)}</span>`;
+      document.getElementById('connectionStatus').innerHTML = '<div class="alert alert-danger">Falha na conexão — chave inválida</div>';
+    } else {
+      // Chave provavelmente OK, mas IA inacessível agora
+      document.getElementById('apiKeyStatus').innerHTML = `<span style="color:var(--warn, #fbbf24)">Chave salva, mas o teste falhou: ${esc(friendly)}</span>`;
+      document.getElementById('connectionStatus').innerHTML = '<div class="alert alert-warning">Chave salva. Teste automático não concluiu — tente enviar uma pergunta na tela do Consultor IA.</div>';
+    }
   }
 }
 
@@ -195,7 +326,14 @@ async function askAI(msg) {
   } catch (e) {
     aiHistory.pop();
     document.getElementById(typingId)?.remove();
-    msgs.innerHTML += `<div class="msg ai fade-in"><div class="msg-avatar">✦</div><div class="msg-bubble" style="color:var(--danger)">Erro: ${esc(e.message)}. Verifique sua chave API em Configurações.</div></div>`;
+    // Mensagem amigável classificada por tipo (transient/invalid_key/quota/bad_request/unknown).
+    // Só sugerimos "verificar chave em Configurações" quando o erro realmente é de chave.
+    const friendly = e.friendlyMessage || e.message || 'Erro inesperado.';
+    const showConfigHint = e.kind === 'invalid_key';
+    const hintHtml = showConfigHint
+      ? ' <a href="#" onclick="showSection(\'config\', null); return false" style="color:var(--danger);text-decoration:underline">Abrir Configurações</a>'
+      : '';
+    msgs.innerHTML += `<div class="msg ai fade-in"><div class="msg-avatar">✦</div><div class="msg-bubble" style="color:var(--danger)">${esc(friendly)}${hintHtml}</div></div>`;
     msgs.scrollTop = msgs.scrollHeight;
   } finally {
     aiProcessing = false;
@@ -401,7 +539,10 @@ IMPORTANTE: Datas em YYYY-MM-DD. Value SEMPRE positivo (o sinal é inferido pelo
     });
     res.innerHTML = `<div style="padding:20px;text-align:center"><div style="font-size:48px;margin-bottom:8px">✅</div><div style="font-size:15px;margin-bottom:6px">Análise concluída!</div><div style="font-size:13px;color:var(--text3)">${txList.length} transações identificadas</div></div>`;
   } catch (e) {
-    res.innerHTML = `<div style="padding:20px;text-align:center"><div style="font-size:48px;margin-bottom:8px">❌</div><div style="font-size:15px;color:var(--danger);margin-bottom:6px">Erro na análise</div><div style="font-size:13px;color:var(--text3)">${esc(e.message)}</div></div>`;
+    // Usa mensagem amigável classificada (setada por callAI). Fallback para e.message para
+    // outros erros (ex: "IA não retornou JSON válido" jogado acima).
+    const friendly = e.friendlyMessage || e.message || 'Erro inesperado.';
+    res.innerHTML = `<div style="padding:20px;text-align:center"><div style="font-size:48px;margin-bottom:8px">❌</div><div style="font-size:15px;color:var(--danger);margin-bottom:6px">Erro na análise</div><div style="font-size:13px;color:var(--text3)">${esc(friendly)}</div></div>`;
   }
 }
 

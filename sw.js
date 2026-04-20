@@ -1,4 +1,6 @@
-const CACHE_NAME = 'financascasa-v6';
+// v7: Fase 0 — retry com backoff + fallback entre modelos Gemini + mensagens de erro classificadas.
+// Bump força reinstalação do SW para que browsers existentes peguem js/api.js e js/storage.js novos.
+const CACHE_NAME = 'financascasa-v7';
 const ASSETS = [
   './',
   './index.html',

@@ -2,7 +2,12 @@
 // STORAGE.JS - Data structures and persistence
 // ========================================
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
+// Ordem de fallback: tenta-se o primeiro; em erro transitório (503/429/UNAVAILABLE/RESOURCE_EXHAUSTED)
+// após retries com backoff, passa-se ao próximo. Mesma chave AIza, mesmo endpoint, só muda o path.
+// Raramente todos os modelos sobrecarregam simultaneamente.
+const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite'];
+// Mantido como alias do modelo default para retrocompatibilidade com código que ainda lê GEMINI_MODEL.
+const GEMINI_MODEL = GEMINI_MODELS[0];
 
 // Perfil do usuário/casal — exibido no Consultor IA. Editável em Configurações.
 let perfil = { casal: '' };
