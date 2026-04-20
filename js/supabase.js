@@ -31,13 +31,25 @@ async function initAuth() {
 
   // Listen for auth changes
   client.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      // Usuário chegou aqui pelo link de "esqueci minha senha" no email.
+      // Supabase abre uma sessão temporária só pra permitir updateUser({password}).
+      // Não chamamos onAuthenticated() — aguardamos o usuário definir a nova senha.
+      _inPasswordRecovery = true;
+      if (session?.user) _currentUser = session.user;
+      showAuthGate();
+      showResetPasswordView();
+      return;
+    }
     if (event === 'SIGNED_IN' && session?.user) {
+      if (_inPasswordRecovery) return; // aguarda completePasswordReset finalizar o fluxo
       _currentUser = session.user;
       hideAuthGate();
       onAuthenticated();
     } else if (event === 'SIGNED_OUT') {
       _currentUser = null;
       _derivedCryptoKey = null;
+      _inPasswordRecovery = false;
       showAuthGate();
     }
   });
@@ -51,6 +63,167 @@ async function initAuth() {
   } else {
     showAuthGate();
   }
+}
+
+// Flag: true enquanto o usuário está no fluxo de reset de senha (após clicar no link do email).
+// Impede que o SIGNED_IN disparado pela sessão temporária do Supabase jogue o usuário pro app
+// antes de ele definir a nova senha.
+let _inPasswordRecovery = false;
+
+// === RESET DE SENHA ===
+async function handleForgotPassword() {
+  const email = (document.getElementById('authForgotEmail') || {}).value || '';
+  const trimmed = email.trim();
+  clearForgotMessages();
+  if (!trimmed) {
+    showForgotError('Informe seu email.');
+    return;
+  }
+  const client = getSupabaseClient();
+  if (!client) {
+    showForgotError('Serviço indisponível no momento. Tente novamente em alguns segundos.');
+    return;
+  }
+  // redirectTo volta pro mesmo origin/path em que o usuário está agora — funciona tanto em
+  // localhost quanto no GitHub Pages, desde que a URL esteja autorizada nas configurações do
+  // projeto Supabase (Authentication → URL Configuration → Redirect URLs).
+  const redirectTo = window.location.origin + window.location.pathname;
+  const { error } = await client.auth.resetPasswordForEmail(trimmed, { redirectTo });
+  if (error) {
+    showForgotError('Não foi possível enviar agora. Tente de novo em alguns minutos.');
+    return;
+  }
+  // Mensagem neutra — não confirma nem nega que a conta existe (evita enumeração de emails).
+  showForgotInfo('Se houver uma conta com esse email, você receberá um link para redefinir a senha em instantes. Confira a caixa de entrada e o spam.');
+}
+
+async function completePasswordReset() {
+  const p1 = (document.getElementById('authNewPassword') || {}).value || '';
+  const p2 = (document.getElementById('authNewPasswordConfirm') || {}).value || '';
+  clearResetMessages();
+  if (!p1 || !p2) {
+    showResetError('Preencha os dois campos.');
+    return;
+  }
+  if (p1.length < 12) {
+    showResetError('Senha deve ter no mínimo 12 caracteres.');
+    return;
+  }
+  if (p1 !== p2) {
+    showResetError('As senhas não coincidem.');
+    return;
+  }
+  const client = getSupabaseClient();
+  if (!client) {
+    showResetError('Serviço indisponível. Tente novamente.');
+    return;
+  }
+  const { data, error } = await client.auth.updateUser({ password: p1 });
+  if (error) {
+    showResetError(error.message || 'Não foi possível atualizar a senha.');
+    return;
+  }
+  // Zera a chave API criptografada — a chave AES que protegia ela era derivada da senha antiga,
+  // então virou lixo. Usuário precisará recolar em Configurações.
+  await clearEncryptedApiKeyCloud();
+
+  _inPasswordRecovery = false;
+  _sessionPassword = p1;
+  if (data?.user) _currentUser = data.user;
+  showResetInfo('Senha atualizada! Entrando no app...');
+  // Pequeno delay para o usuário ver a confirmação, depois segue o fluxo autenticado normal
+  setTimeout(() => {
+    hideResetPasswordView();
+    hideAuthGate();
+    onAuthenticated();
+  }, 800);
+}
+
+async function clearEncryptedApiKeyCloud() {
+  if (!_currentUser) return;
+  const client = getSupabaseClient();
+  if (!client) return;
+  try {
+    await client.from('user_settings').update({
+      encrypted_api_key: null,
+      api_key_iv: null,
+      api_key_salt: null
+    }).eq('user_id', _currentUser.id);
+    // Também limpa in-memory e o input da UI se já carregou
+    GEMINI_API_KEY = '';
+    const input = document.getElementById('apiKeyInput');
+    if (input) input.value = '';
+  } catch (e) {
+    console.warn('Falha ao limpar API key criptografada após reset de senha:', e);
+  }
+}
+
+// === UI HELPERS: RESET DE SENHA ===
+function showForgotView() {
+  clearAuthMessages();
+  const form = document.getElementById('authForm');
+  const forgot = document.getElementById('authForgotForm');
+  if (form) form.style.display = 'none';
+  if (forgot) forgot.style.display = 'block';
+  // Pré-popula o email se o usuário já tinha digitado no login
+  const mainEmail = (document.getElementById('authEmail') || {}).value || '';
+  const forgotEmail = document.getElementById('authForgotEmail');
+  if (forgotEmail && mainEmail && !forgotEmail.value) forgotEmail.value = mainEmail;
+}
+
+function hideForgotView() {
+  clearForgotMessages();
+  const form = document.getElementById('authForm');
+  const forgot = document.getElementById('authForgotForm');
+  if (forgot) forgot.style.display = 'none';
+  if (form) form.style.display = 'block';
+}
+
+function showResetPasswordView() {
+  clearAuthMessages();
+  clearForgotMessages();
+  const form = document.getElementById('authForm');
+  const forgot = document.getElementById('authForgotForm');
+  const reset = document.getElementById('authResetForm');
+  if (form) form.style.display = 'none';
+  if (forgot) forgot.style.display = 'none';
+  if (reset) reset.style.display = 'block';
+}
+
+function hideResetPasswordView() {
+  const reset = document.getElementById('authResetForm');
+  const form = document.getElementById('authForm');
+  if (reset) reset.style.display = 'none';
+  if (form) form.style.display = 'block';
+}
+
+function showForgotError(msg) {
+  const el = document.getElementById('authForgotError');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+function showForgotInfo(msg) {
+  const el = document.getElementById('authForgotInfo');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+function clearForgotMessages() {
+  const err = document.getElementById('authForgotError');
+  const info = document.getElementById('authForgotInfo');
+  if (err) err.style.display = 'none';
+  if (info) info.style.display = 'none';
+}
+function showResetError(msg) {
+  const el = document.getElementById('authResetError');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+function showResetInfo(msg) {
+  const el = document.getElementById('authResetInfo');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+function clearResetMessages() {
+  const err = document.getElementById('authResetError');
+  const info = document.getElementById('authResetInfo');
+  if (err) err.style.display = 'none';
+  if (info) info.style.display = 'none';
 }
 
 async function handleSignIn() {
