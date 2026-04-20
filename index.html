@@ -100,6 +100,26 @@
   </div>
 </div>
 
+<!-- ONBOARDING (primeiro acesso: pergunta o nome do lar) -->
+<!-- Dispara em maybeShowOnboarding(), chamado no fim de initApp() quando perfil.casal está vazio. -->
+<div id="onboardingModal" class="modal-overlay">
+  <div class="modal-card">
+    <div class="modal-title">Bem-vindo ao FinançasCasa ✦</div>
+    <div style="font-size:14px;color:var(--text2);line-height:1.6;margin-bottom:16px">
+      Para começar, como vamos chamar o seu lar? Esse nome aparece na barra lateral e nas respostas do Consultor IA.
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nome do lar</label>
+      <input class="form-input" id="onboardingNameInput" type="text" placeholder="ex.: João & Maria, Família Silva, Minha Casa" maxlength="80" onkeypress="if(event.key==='Enter') completeOnboarding()">
+    </div>
+    <div id="onboardingError" class="alert alert-danger" style="display:none;margin-bottom:8px"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="completeOnboarding()">Começar</button>
+    <div style="text-align:center;margin-top:10px">
+      <button class="btn btn-ghost" style="font-size:12px;color:var(--text3)" onclick="skipOnboarding()">Pular (usar respostas neutras)</button>
+    </div>
+  </div>
+</div>
+
 <!-- MOBILE OVERLAY -->
 <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 

@@ -501,6 +501,11 @@ function initApp() {
 
   // Popula sidebar (avatar + nome do lar) a partir de perfil.casal
   refreshProfileDisplay();
+
+  // Primeiro acesso? (perfil.casal vazio) — mostra modal de onboarding por cima do app.
+  // Chamado depois que loadFromSupabase/loadFromLocalStorage populou perfil, então não dispara
+  // para quem já configurou o nome do lar.
+  maybeShowOnboarding();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -545,6 +550,49 @@ function refreshProfileDisplay() {
   const nameEl = document.getElementById('profileName');
   if (avatarEl) avatarEl.textContent = initials;
   if (nameEl) nameEl.textContent = nomeDisplay;
+}
+
+// === ONBOARDING DE PRIMEIRO ACESSO ===
+// Dispara no fim de initApp() quando perfil.casal está vazio. Vale tanto para contas novas
+// autenticadas (sync trouxe perfil vazio) quanto para modo offline em origem nova.
+// Usuário pode "pular" — aí fica "Minha Casa" via fallback de refreshProfileDisplay. Ele pode
+// revisitar a qualquer momento em Configurações → Perfil.
+function maybeShowOnboarding() {
+  const hasName = (typeof perfil !== 'undefined' && perfil && perfil.casal && perfil.casal.trim());
+  if (hasName) return;
+  const modal = document.getElementById('onboardingModal');
+  if (!modal) return;
+  modal.classList.add('show');
+  // Foco no input pra o usuário já poder digitar
+  const input = document.getElementById('onboardingNameInput');
+  if (input) setTimeout(() => input.focus(), 100);
+}
+
+function completeOnboarding() {
+  const input = document.getElementById('onboardingNameInput');
+  if (!input) return;
+  const valor = input.value.trim().slice(0, 80);
+  const err = document.getElementById('onboardingError');
+  if (!valor) {
+    if (err) { err.textContent = 'Digite um nome ou clique em "Pular".'; err.style.display = 'block'; }
+    return;
+  }
+  if (typeof perfil === 'undefined') return;
+  perfil.casal = valor;
+  // Espelha no input de Configurações → Perfil para manter a UI coerente se o usuário abrir depois
+  const perfilInput = document.getElementById('perfilCasalInput');
+  if (perfilInput) perfilInput.value = valor;
+  saveToLocalStorage();
+  refreshProfileDisplay();
+  const modal = document.getElementById('onboardingModal');
+  if (modal) modal.classList.remove('show');
+}
+
+function skipOnboarding() {
+  // Usuário não quis nomear agora — fallback "Minha Casa" / "MC" continua.
+  // Pode definir depois em Configurações → Perfil.
+  const modal = document.getElementById('onboardingModal');
+  if (modal) modal.classList.remove('show');
 }
 
 function savePerfilCasal() {
