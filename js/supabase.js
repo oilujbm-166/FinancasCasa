@@ -425,11 +425,14 @@ async function handleSignIn() {
       _masterKey = await importMasterKey(rawMK);
       sessionStorage.setItem('fc_mk_' + userId, serializeMasterKey(rawMK));
       rawMK.fill(0);
+    } else {
+      // Conta pré-envelope-encryption: migra dados plaintext pra novo esquema.
+      // Converge ao estado dos usuários migrados em um único login.
+      await migrateUserToEnvelope(userId, password);
     }
-    // Usuário sem wrapped_master_key (conta antiga) segue — Fase G migrará depois.
     settleLatch();
   } catch (e) {
-    // Senha aceita pelo auth mas wrapped decifra errado: estado inconsistente. Force signOut.
+    // Senha aceita pelo auth mas wrapped decifra errado ou migração falhou.
     settleLatch(e);
     showAuthError('Falha ao desbloquear seus dados. Entre em contato com o admin.');
     await client.auth.signOut();
@@ -829,6 +832,85 @@ async function loadFromSupabase() {
 }
 
 // === MIGRATION: localStorage → Cloud ===
+// Migração lazy (Fase G): usuário logou com senha válida mas ainda não tem MasterKey
+// — gera MK, criptografa o blob plaintext existente em user_data.data e re-criptografa
+// a chave Gemini v1 como v2. Chamado de dentro de handleSignIn pra rodar dentro do
+// latch _unlockPromise (onAuthenticated espera).
+async function migrateUserToEnvelope(userId, password) {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase client indisponível');
+
+  const rawMK = await generateMasterKeyRaw();
+  _masterKey = await importMasterKey(rawMK);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const pwKey = await derivePasswordKey(password, salt);
+  const wrapped = await wrapMasterKey(rawMK, pwKey);
+
+  const { data: udRow } = await client.from('user_data')
+    .select('data').eq('user_id', userId).maybeSingle();
+  const { data: usRow } = await client.from('user_settings')
+    .select('encrypted_api_key, api_key_iv, api_key_salt').eq('user_id', userId).maybeSingle();
+
+  const plainBlob = udRow?.data || {
+    transactions: [], budgetData: [], goals: [], investments: [], aiHistory: [],
+    customCategories: {}, planejamentoMedica: null, perfil: { casal: '' }
+  };
+  const encBlob = await encryptJson(_masterKey, plainBlob);
+
+  // Resgata chave Gemini v1 (cifrada com deriveEncryptionKey(senha, api_key_salt)).
+  let encApiKeyV2 = null;
+  if (usRow?.encrypted_api_key && usRow?.api_key_iv && usRow?.api_key_salt) {
+    try {
+      const oldSalt = base64ToBuf(usRow.api_key_salt);
+      const oldPwKey = await deriveEncryptionKey(password, oldSalt);
+      const cipher = base64ToBuf(usRow.encrypted_api_key);
+      const iv = base64ToBuf(usRow.api_key_iv);
+      const decryptedBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, oldPwKey, cipher);
+      const plainKey = new TextDecoder().decode(decryptedBuf);
+      if (plainKey) encApiKeyV2 = await encryptJson(_masterKey, { key: plainKey });
+    } catch (e) {
+      // A cripto v1 tinha bug: a chave era re-cifrada a cada load com a senha DA SESSÃO,
+      // então se o usuário trocou de senha sem recolar a chave, o decrypt aqui vai falhar.
+      // Usuário recola em Configurações (fluxo v2 pega daqui).
+      console.warn('Migração: chave Gemini v1 não pôde ser resgatada — usuário precisará recolar');
+    }
+  }
+
+  const settingsUpsert = {
+    user_id: userId,
+    wrapped_master_key: wrapped.ciphertext,
+    master_key_iv: wrapped.iv,
+    master_key_salt: bufToBase64(salt),
+    encrypted_api_key: null,
+    api_key_iv: null,
+    api_key_salt: null
+  };
+  if (encApiKeyV2) {
+    settingsUpsert.encrypted_api_key_v2 = encApiKeyV2.ciphertext;
+    settingsUpsert.api_key_iv_v2 = encApiKeyV2.iv;
+  }
+  const { error: sErr } = await client.from('user_settings').upsert(settingsUpsert, { onConflict: 'user_id' });
+  if (sErr) throw sErr;
+
+  const { error: dErr } = await client.from('user_data').upsert({
+    user_id: userId,
+    encrypted_data: encBlob.ciphertext,
+    data_iv: encBlob.iv,
+    data_version: 1,
+    data: null,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'user_id' });
+  if (dErr) {
+    // Estado parcial: user_settings tem wrapped mas user_data ainda em plaintext.
+    // Self-healing: próximo loadFromSupabase lê row.data (fallback), próximo save
+    // grava encrypted_data. Só logamos.
+    console.warn('Migração: user_settings ok mas user_data upsert falhou — estado converge no próximo save', dErr);
+  }
+
+  sessionStorage.setItem('fc_mk_' + userId, serializeMasterKey(rawMK));
+  rawMK.fill(0);
+}
+
 async function migrateLocalStorageToCloud() {
   if (!_currentUser || _isOfflineMode) return;
   const client = getSupabaseClient();
