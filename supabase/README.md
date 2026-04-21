@@ -77,3 +77,42 @@ As tabelas necessárias são:
 - `public.invites` (code, email, created_by, expires_at, used_by, used_at)
 - `public.signup_attempts` (ip_hash, attempted_at, success)
 - `public.cleanup_old_signup_attempts()` função de limpeza
+
+## Schema — Envelope Encryption (Fase B)
+
+Adiciona colunas para o fluxo de envelope encryption (wrapped MasterKey + blob
+criptografado). Rodar no SQL Editor do projeto `nlgqdvekpaxlmywowxnr`:
+
+```sql
+ALTER TABLE public.user_settings
+  ADD COLUMN IF NOT EXISTS wrapped_master_key text,
+  ADD COLUMN IF NOT EXISTS master_key_iv text,
+  ADD COLUMN IF NOT EXISTS master_key_salt text,
+  ADD COLUMN IF NOT EXISTS encrypted_api_key_v2 text,
+  ADD COLUMN IF NOT EXISTS api_key_iv_v2 text;
+
+ALTER TABLE public.user_data
+  ADD COLUMN IF NOT EXISTS encrypted_data text,
+  ADD COLUMN IF NOT EXISTS data_iv text,
+  ADD COLUMN IF NOT EXISTS data_version integer DEFAULT 1;
+```
+
+Validação:
+
+```sql
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema='public' AND table_name='user_settings'
+  AND column_name IN ('wrapped_master_key','master_key_iv','master_key_salt',
+                      'encrypted_api_key_v2','api_key_iv_v2');
+-- 5 linhas
+
+SELECT column_name FROM information_schema.columns
+WHERE table_schema='public' AND table_name='user_data'
+  AND column_name IN ('encrypted_data','data_iv','data_version');
+-- 3 linhas
+```
+
+As colunas v1 (`data`, `encrypted_api_key`, `api_key_iv`, `api_key_salt`) ficam
+coexistindo até a Fase J, quando são dropadas após confirmar que todos os 4
+usuários migraram.
