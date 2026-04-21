@@ -116,3 +116,20 @@ WHERE table_schema='public' AND table_name='user_data'
 As colunas v1 (`data`, `encrypted_api_key`, `api_key_iv`, `api_key_salt`) ficam
 coexistindo até a Fase J, quando são dropadas após confirmar que todos os 4
 usuários migraram.
+
+### Hotfix pós-deploy — permitir `data` NULL
+
+O schema original tinha `user_data.data jsonb NOT NULL DEFAULT '{}'`. O código de
+migração, signup, save e reset de senha tenta gravar `data = NULL` após mover o
+blob pra `encrypted_data`. Isso falhava silenciosamente pela violação de
+`NOT NULL` (a Supabase JS retornava `{ error }`, que nosso código só logava).
+
+Correção aplicada:
+
+```sql
+ALTER TABLE public.user_data ALTER COLUMN data DROP NOT NULL;
+```
+
+Após isso, os 4 caminhos que gravam `data: null` passam a funcionar normalmente.
+Usuários que já estavam com migração parcial (wrapped_master_key setado mas
+data ainda plaintext) convergem no próximo save após qualquer mudança no app.
