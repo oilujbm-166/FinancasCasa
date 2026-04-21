@@ -349,6 +349,38 @@ function resetAllData() {
   alert('Todos os dados foram resetados!');
 }
 
+// === BACKUP REMINDER (Fase I) ===
+// Dados são criptografados ponta-a-ponta; sem senha, não há recuperação. Banner
+// no topo do app reforça a rotina de exportar JSON mensalmente.
+function maybeShowBackupReminder() {
+  const last = parseInt(localStorage.getItem('fc_last_backup') || '0', 10);
+  const dismissedUntil = parseInt(localStorage.getItem('fc_backup_reminder_dismissed') || '0', 10);
+  const now = Date.now();
+  if (now < dismissedUntil) return;
+  if (last && now - last < 30 * 86400 * 1000) return;
+  const banner = document.getElementById('backupReminderBanner');
+  if (banner) banner.style.display = 'block';
+}
+function markBackupDone() {
+  localStorage.setItem('fc_last_backup', String(Date.now()));
+  const banner = document.getElementById('backupReminderBanner');
+  if (banner) banner.style.display = 'none';
+  updateLastBackupLabel();
+}
+function dismissBackupReminder(days) {
+  if (days > 0) localStorage.setItem('fc_backup_reminder_dismissed', String(Date.now() + days * 86400 * 1000));
+  const banner = document.getElementById('backupReminderBanner');
+  if (banner) banner.style.display = 'none';
+}
+function updateLastBackupLabel() {
+  const el = document.getElementById('lastBackupLabel');
+  if (!el) return;
+  const last = parseInt(localStorage.getItem('fc_last_backup') || '0', 10);
+  if (!last) { el.textContent = 'Último backup: nunca.'; return; }
+  const d = new Date(last);
+  el.textContent = `Último backup: ${d.toLocaleDateString('pt-BR')} (${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}).`;
+}
+
 // === BACKUP DATA ===
 function backupData() {
   const customCats = {};
@@ -514,6 +546,10 @@ function initApp() {
     invitesCard.style.display = 'block';
     loadInvitesList();
   }
+
+  // Backup reminder (Fase I): "Último backup: X" + banner no topo se 30 dias sem backup.
+  updateLastBackupLabel();
+  maybeShowBackupReminder();
 }
 
 document.addEventListener('DOMContentLoaded', () => {

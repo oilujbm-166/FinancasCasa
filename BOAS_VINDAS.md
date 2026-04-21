@@ -107,6 +107,21 @@ Façam backup pelo menos uma vez por semana, e sempre antes de importações gra
 
 ---
 
+## Segurança e backup
+
+O app usa **envelope encryption**: uma chave AES aleatória protege seus dados e, por sua vez, é embrulhada com sua senha (PBKDF2, 600k iterações). O banco do Supabase nunca vê os números puros.
+
+Implicações práticas:
+
+- **Reset de senha exige a senha atual.** Trocando senha dessa forma, seus dados permanecem intactos. Em **Configurações → Sair** e depois **Esqueci minha senha**, o fluxo pede a senha atual antes da nova.
+- **Esqueci a senha atual e nem o outro lembra → opção "Esqueci a senha atual".** Você define uma nova senha, mas **todos os dados financeiros são apagados**. Não há recuperação parcial: o Supabase nunca teve sua senha e não consegue descriptografar sem ela.
+- **Faça backup mensal.** Em **Configurações → Fazer Backup agora**, exporte o JSON e guarde em lugar seguro (Drive, iCloud, pendrive). Se perderem a senha, o backup é a única forma de recuperar.
+- **Um banner no topo do app** lembra de 30 em 30 dias. "Lembrar em 30 dias" silencia por um mês; "Já fiz" reseta o contador.
+
+> O modelo é igual ao do Bitwarden ou 1Password: ninguém no servidor consegue ler seus dados, e isso inclui quem tem acesso ao código do backend. O trade-off é a responsabilidade com a senha.
+
+---
+
 ## Dicas de uso
 
 - Importem o mês inteiro de uma vez, não lançamento por lançamento. A IA acerta a maior parte das categorias.
