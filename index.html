@@ -51,12 +51,38 @@
       <div id="authError" class="alert alert-danger" style="display:none"></div>
       <div id="authInfo" class="alert alert-success" style="display:none"></div>
       <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="handleSignIn()">Entrar</button>
-      <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="handleSignUp()">Criar Conta</button>
+      <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="showSignupView()">Criar Conta com Convite</button>
       <div style="text-align:center;margin-top:10px">
         <button class="btn btn-ghost" style="font-size:12px;color:var(--text3)" onclick="showForgotView()">Esqueci minha senha</button>
       </div>
       <div style="text-align:center;margin-top:6px">
         <button class="btn btn-ghost" style="font-size:12px;color:var(--text3)" onclick="continueOffline()">Continuar Offline (sem sincronização)</button>
+      </div>
+    </div>
+
+    <!-- CRIAR CONTA COM CONVITE (Fase 1.1) -->
+    <!-- Signup é fechado: só funciona com código gerado por algum dono via Edge Function generate-invite -->
+    <div id="authSignupForm" style="display:none">
+      <div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">
+        O FinançasCasa funciona por convite. Use o código que você recebeu por email para criar sua conta.
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email (mesmo do convite)</label>
+        <input class="form-input" type="email" id="authSignupEmail" placeholder="seu@email.com" autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Código de convite</label>
+        <input class="form-input" type="text" id="authSignupCode" placeholder="ex.: aBcDeFgHiJ" maxlength="20" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Crie uma senha (mínimo 12 caracteres)</label>
+        <input class="form-input" type="password" id="authSignupPassword" placeholder="••••••••••••" autocomplete="new-password" minlength="12" onkeypress="if(event.key==='Enter') completeSignup()">
+      </div>
+      <div id="authSignupError" class="alert alert-danger" style="display:none"></div>
+      <div id="authSignupInfo" class="alert alert-success" style="display:none"></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="completeSignup()">Criar minha conta</button>
+      <div style="text-align:center;margin-top:10px">
+        <button class="btn btn-ghost" style="font-size:12px;color:var(--text3)" onclick="hideSignupView()">← Voltar ao login</button>
       </div>
     </div>
 
@@ -659,6 +685,45 @@
         </div>
         <button class="btn btn-primary" onclick="savePerfilCasal()" style="width:100%">Salvar</button>
         <div id="perfilStatus" style="margin-top:8px;font-size:12px;color:var(--text3)">Deixe em branco para respostas neutras.</div>
+      </div>
+
+      <!-- CONVITES (Fase 1.1) — só visível pra usuário autenticado, escondido em modo offline -->
+      <div class="card" id="invitesCard" style="margin-top:24px;display:none">
+        <div class="card-header">
+          <div class="card-title">Convites</div>
+        </div>
+        <div style="font-size:13px;color:var(--text2);margin-top:8px;line-height:1.5">
+          Convide amigos ou familiares para usar o sistema. O código fica vinculado ao email informado e tem validade limitada.
+        </div>
+
+        <div class="form-group" style="margin-top:16px">
+          <label class="form-label">Email do convidado</label>
+          <input class="form-input" id="inviteEmailInput" type="email" placeholder="amigo@email.com" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Validade do código</label>
+          <select class="form-input" id="inviteDurationSelect">
+            <option value="1">1 hora</option>
+            <option value="24" selected>24 horas</option>
+            <option value="168">7 dias</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="generateInvite()" style="width:100%">Gerar convite</button>
+
+        <!-- Banner com o código recém-gerado -->
+        <div id="inviteGenerated" style="display:none;margin-top:16px;padding:14px;background:var(--bg3);border-radius:8px;border:1px solid var(--accent3)">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Código gerado — envie ao convidado:</div>
+          <div id="inviteCodeDisplay" style="font-family:DM Mono,monospace;font-size:18px;font-weight:600;color:var(--accent3);letter-spacing:1px;margin-bottom:8px;word-break:break-all"></div>
+          <div id="inviteExpiresDisplay" style="font-size:11px;color:var(--text3);margin-bottom:10px"></div>
+          <button class="btn btn-ghost" onclick="copyInviteCode()" style="width:100%;font-size:12px">📋 Copiar código</button>
+        </div>
+
+        <div id="inviteError" class="alert alert-danger" style="display:none;margin-top:12px"></div>
+
+        <div style="margin-top:24px">
+          <div style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:8px">Convites recentes</div>
+          <div id="invitesPendingList" style="font-size:12px;color:var(--text2)">Carregando...</div>
+        </div>
       </div>
 
       <div class="card" style="margin-top:24px">

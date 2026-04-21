@@ -1,9 +1,10 @@
+// v11: Fase 1.1 — gate de signup por convite (auth gate com 3 campos + tela de Convites em Configurações).
 // v10: Fase 1.4 — modal de onboarding de primeiro acesso (pede nome do lar).
 // v9: Fase 1.5 — reset de senha (esqueci minha senha + nova senha após link do email).
 // v8: Perfil dinâmico na sidebar — avatar e nome do lar derivados de perfil.casal.
 // v7: Fase 0 — retry com backoff + fallback entre modelos Gemini + mensagens de erro classificadas.
 // Bump força reinstalação do SW para que browsers existentes peguem os JS novos.
-const CACHE_NAME = 'financascasa-v10';
+const CACHE_NAME = 'financascasa-v11';
 const ASSETS = [
   './',
   './index.html',

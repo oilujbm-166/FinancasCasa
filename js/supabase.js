@@ -159,11 +159,37 @@ async function clearEncryptedApiKeyCloud() {
 }
 
 // === UI HELPERS: RESET DE SENHA ===
+// Helper: esconde todas as views do auth-card de uma vez (login, signup, forgot, reset)
+function _hideAllAuthViews() {
+  ['authForm', 'authSignupForm', 'authForgotForm', 'authResetForm'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+}
+
+function showSignupView() {
+  clearAuthMessages();
+  clearSignupMessages();
+  _hideAllAuthViews();
+  const signup = document.getElementById('authSignupForm');
+  if (signup) signup.style.display = 'block';
+  // Pré-popula o email se o usuário já tinha digitado no login
+  const mainEmail = (document.getElementById('authEmail') || {}).value || '';
+  const signupEmail = document.getElementById('authSignupEmail');
+  if (signupEmail && mainEmail && !signupEmail.value) signupEmail.value = mainEmail;
+}
+
+function hideSignupView() {
+  clearSignupMessages();
+  _hideAllAuthViews();
+  const form = document.getElementById('authForm');
+  if (form) form.style.display = 'block';
+}
+
 function showForgotView() {
   clearAuthMessages();
-  const form = document.getElementById('authForm');
+  _hideAllAuthViews();
   const forgot = document.getElementById('authForgotForm');
-  if (form) form.style.display = 'none';
   if (forgot) forgot.style.display = 'block';
   // Pré-popula o email se o usuário já tinha digitado no login
   const mainEmail = (document.getElementById('authEmail') || {}).value || '';
@@ -173,27 +199,22 @@ function showForgotView() {
 
 function hideForgotView() {
   clearForgotMessages();
+  _hideAllAuthViews();
   const form = document.getElementById('authForm');
-  const forgot = document.getElementById('authForgotForm');
-  if (forgot) forgot.style.display = 'none';
   if (form) form.style.display = 'block';
 }
 
 function showResetPasswordView() {
   clearAuthMessages();
   clearForgotMessages();
-  const form = document.getElementById('authForm');
-  const forgot = document.getElementById('authForgotForm');
+  _hideAllAuthViews();
   const reset = document.getElementById('authResetForm');
-  if (form) form.style.display = 'none';
-  if (forgot) forgot.style.display = 'none';
   if (reset) reset.style.display = 'block';
 }
 
 function hideResetPasswordView() {
-  const reset = document.getElementById('authResetForm');
+  _hideAllAuthViews();
   const form = document.getElementById('authForm');
-  if (reset) reset.style.display = 'none';
   if (form) form.style.display = 'block';
 }
 
@@ -226,6 +247,21 @@ function clearResetMessages() {
   if (info) info.style.display = 'none';
 }
 
+function showSignupError(msg) {
+  const el = document.getElementById('authSignupError');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+function showSignupInfo(msg) {
+  const el = document.getElementById('authSignupInfo');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+function clearSignupMessages() {
+  const err = document.getElementById('authSignupError');
+  const info = document.getElementById('authSignupInfo');
+  if (err) err.style.display = 'none';
+  if (info) info.style.display = 'none';
+}
+
 async function handleSignIn() {
   const email = document.getElementById('authEmail').value.trim();
   const password = document.getElementById('authPassword').value;
@@ -249,31 +285,93 @@ async function handleSignIn() {
   _sessionPassword = password;
 }
 
+// handleSignUp: legado. Mantido como atalho para abrir a view de signup com código (Fase 1.1).
+// Antes chamava client.auth.signUp({ email, password }), mas agora signups são bloqueados
+// pelo Supabase (signups disabled) e só rolam via redeem-invite Edge Function.
 async function handleSignUp() {
-  const email = document.getElementById('authEmail').value.trim();
-  const password = document.getElementById('authPassword').value;
-  clearAuthMessages();
+  showSignupView();
+}
 
-  if (!email || !password) {
-    showAuthError('Preencha email e senha.');
+// Fluxo da Fase 1.1: usuário com código de convite + email + senha → chama redeem-invite
+// Edge Function (pública, verify_jwt=false), que cria a conta via service role e devolve sessão.
+async function completeSignup() {
+  const email = (document.getElementById('authSignupEmail') || {}).value.trim();
+  const code = (document.getElementById('authSignupCode') || {}).value.trim();
+  const password = (document.getElementById('authSignupPassword') || {}).value || '';
+  clearSignupMessages();
+
+  if (!email) {
+    showSignupError('Informe seu email.');
+    return;
+  }
+  if (!code) {
+    showSignupError('Informe o código de convite que você recebeu.');
     return;
   }
   if (password.length < 12) {
-    showAuthError('Senha deve ter no mínimo 12 caracteres.');
+    showSignupError('Senha deve ter no mínimo 12 caracteres.');
     return;
   }
 
-  const client = getSupabaseClient();
-  const { data, error } = await client.auth.signUp({ email, password });
-  if (error) {
-    if (/signups? not allowed/i.test(error.message || '')) {
-      showAuthError('Cadastro disponível apenas por convite. Entre em contato com o administrador do sistema.');
-    } else {
-      showAuthError(error.message);
-    }
+  const url = `${SUPABASE_URL}/functions/v1/redeem-invite`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // apikey é exigido pelo gateway das Edge Functions mesmo quando verify_jwt=false
+        'apikey': SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ email, code, password }),
+    });
+  } catch (e) {
+    showSignupError('Falha de rede. Verifique sua conexão e tente novamente.');
     return;
   }
-  showAuthInfo('Conta criada! Verifique seu email para confirmar.');
+
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+
+  if (!res.ok) {
+    // Mapeia HTTP status → mensagem amigável em PT-BR. Detalhes em supabase/functions/redeem-invite/index.ts
+    const errKind = data?.error || '';
+    let msg;
+    if (res.status === 400) msg = 'Dados inválidos. Verifique email, código e senha (mínimo 12 caracteres).';
+    else if (res.status === 403) msg = 'Esse código não é válido para este email. Confirme o email exato em que você recebeu o convite.';
+    else if (res.status === 404) msg = 'Código de convite inválido. Confira se digitou exatamente como recebeu.';
+    else if (res.status === 410 && errKind === 'code expired') msg = 'Este código expirou. Peça um novo ao administrador.';
+    else if (res.status === 410) msg = 'Este código já foi usado. Cada convite vale para uma conta só.';
+    else if (res.status === 429) msg = 'Muitas tentativas seguidas. Aguarde 1 hora antes de tentar de novo.';
+    else if (res.status === 500) msg = 'Erro ao criar conta no servidor. Tente novamente em alguns minutos.';
+    else msg = `Erro inesperado (${res.status}): ${errKind || 'sem detalhes'}.`;
+    showSignupError(msg);
+    return;
+  }
+
+  // Sucesso: a função retornou { user, session }. Vamos plugar a sessão no client Supabase
+  // e o onAuthStateChange dispara SIGNED_IN → onAuthenticated → entra no app.
+  const session = data?.session;
+  if (!session?.access_token || !session?.refresh_token) {
+    // Fallback: cria conta deu certo mas sessão veio incompleta. Pede pra fazer login manual.
+    showSignupInfo('Conta criada! Use "Entrar" com seu email e senha para acessar o app.');
+    return;
+  }
+
+  showSignupInfo('Conta criada! Entrando...');
+  const client = getSupabaseClient();
+  if (!client) {
+    showSignupError('Cliente Supabase não disponível. Recarregue a página e tente fazer login.');
+    return;
+  }
+  // Guarda a senha em memória pra cripto da API key Gemini funcionar nesta sessão
+  _sessionPassword = password;
+  await client.auth.setSession({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+  });
+  // setSession dispara onAuthStateChange → SIGNED_IN → onAuthenticated → initApp.
+  // Não precisa fazer mais nada aqui.
 }
 
 async function handleSignOut() {

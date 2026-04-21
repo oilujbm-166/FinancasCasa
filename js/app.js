@@ -506,6 +506,14 @@ function initApp() {
   // Chamado depois que loadFromSupabase/loadFromLocalStorage populou perfil, então não dispara
   // para quem já configurou o nome do lar.
   maybeShowOnboarding();
+
+  // Convites (Fase 1.1): só pra usuário autenticado. RLS garante que cada um vê só os próprios.
+  // Em modo offline, a seção fica escondida (não tem como falar com a Edge Function nem com o DB).
+  const invitesCard = document.getElementById('invitesCard');
+  if (invitesCard && typeof _currentUser !== 'undefined' && _currentUser && !_isOfflineMode) {
+    invitesCard.style.display = 'block';
+    loadInvitesList();
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -593,6 +601,155 @@ function skipOnboarding() {
   // Pode definir depois em Configurações → Perfil.
   const modal = document.getElementById('onboardingModal');
   if (modal) modal.classList.remove('show');
+}
+
+// === CONVITES (Fase 1.1) ===
+// Chama Edge Function generate-invite (autenticada) com email + duração escolhida.
+// O dono é inferido pelo JWT no backend (created_by = auth.uid()).
+async function generateInvite() {
+  const email = (document.getElementById('inviteEmailInput') || {}).value || '';
+  const durationStr = (document.getElementById('inviteDurationSelect') || {}).value || '24';
+  const trimmed = email.trim();
+  const errEl = document.getElementById('inviteError');
+  if (errEl) errEl.style.display = 'none';
+
+  if (!trimmed) {
+    if (errEl) { errEl.textContent = 'Informe o email do convidado.'; errEl.style.display = 'block'; }
+    return;
+  }
+
+  const client = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+  if (!client || typeof _currentUser === 'undefined' || !_currentUser) {
+    if (errEl) { errEl.textContent = 'Você precisa estar logado para gerar convites.'; errEl.style.display = 'block'; }
+    return;
+  }
+  const { data: { session } } = await client.auth.getSession();
+  if (!session?.access_token) {
+    if (errEl) { errEl.textContent = 'Sessão inválida. Recarregue a página e faça login de novo.'; errEl.style.display = 'block'; }
+    return;
+  }
+
+  let res;
+  try {
+    res = await fetch(`${SUPABASE_URL}/functions/v1/generate-invite`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + session.access_token,
+        'apikey': SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ email: trimmed, durationHours: parseInt(durationStr, 10) }),
+    });
+  } catch (e) {
+    if (errEl) { errEl.textContent = 'Falha de rede ao chamar a função.'; errEl.style.display = 'block'; }
+    return;
+  }
+
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) {
+    if (errEl) {
+      errEl.textContent = `Erro ao gerar convite (HTTP ${res.status}): ${data?.error || 'sem detalhes'}`;
+      errEl.style.display = 'block';
+    }
+    return;
+  }
+
+  // Sucesso: mostra código e atualiza lista
+  const codeEl = document.getElementById('inviteCodeDisplay');
+  const expEl = document.getElementById('inviteExpiresDisplay');
+  if (codeEl) codeEl.textContent = data.code;
+  if (expEl) {
+    const exp = new Date(data.expires_at);
+    expEl.textContent = `Válido até ${exp.toLocaleString('pt-BR')} · vinculado a ${esc(trimmed)}`;
+  }
+  const wrap = document.getElementById('inviteGenerated');
+  if (wrap) wrap.style.display = 'block';
+
+  // Limpa input pra próxima geração
+  const emailInput = document.getElementById('inviteEmailInput');
+  if (emailInput) emailInput.value = '';
+
+  loadInvitesList();
+}
+
+async function copyInviteCode() {
+  const codeEl = document.getElementById('inviteCodeDisplay');
+  if (!codeEl) return;
+  try {
+    await navigator.clipboard.writeText((codeEl.textContent || '').trim());
+    const btn = (typeof event !== 'undefined' && event && event.target) ? event.target : null;
+    if (btn) {
+      const original = btn.textContent;
+      btn.textContent = '✓ Copiado!';
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    }
+  } catch (e) {
+    // Clipboard API pode falhar em http (não-https) ou contexts antigos — fallback silencioso
+  }
+}
+
+async function loadInvitesList() {
+  const listEl = document.getElementById('invitesPendingList');
+  if (!listEl) return;
+  const client = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+  if (!client || typeof _currentUser === 'undefined' || !_currentUser) {
+    listEl.innerHTML = '<span style="color:var(--text3)">—</span>';
+    return;
+  }
+  // RLS filtra automaticamente pelos invites onde created_by = auth.uid()
+  const { data, error } = await client
+    .from('invites')
+    .select('code, email, created_at, expires_at, used_at, used_by')
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) {
+    listEl.innerHTML = `<span style="color:var(--danger)">Erro ao carregar: ${esc(error.message)}</span>`;
+    return;
+  }
+  if (!data || data.length === 0) {
+    listEl.innerHTML = '<span style="color:var(--text3)">Nenhum convite gerado ainda.</span>';
+    return;
+  }
+
+  const now = Date.now();
+  const rows = data.map(i => {
+    const usedAt = i.used_at ? new Date(i.used_at) : null;
+    const expiresAt = new Date(i.expires_at);
+    let statusText, statusColor;
+    if (usedAt) {
+      statusText = `usado em ${usedAt.toLocaleDateString('pt-BR')}`;
+      statusColor = 'var(--text3)';
+    } else if (expiresAt.getTime() < now) {
+      statusText = 'expirado';
+      statusColor = 'var(--danger)';
+    } else {
+      const diffH = Math.round((expiresAt.getTime() - now) / 3_600_000);
+      statusText = diffH < 24 ? `expira em ${diffH}h` : `expira em ${Math.round(diffH / 24)}d`;
+      statusColor = 'var(--accent3)';
+    }
+    const canRevoke = !usedAt;
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <div style="min-width:0;flex:1">
+        <div style="font-family:DM Mono,monospace;color:${statusColor};font-weight:500">${esc(i.code)}</div>
+        <div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(i.email)} · ${statusText}</div>
+      </div>
+      ${canRevoke ? `<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--danger)" onclick="revokeInvite('${esc(i.code)}')" title="Revogar este convite">✕</button>` : ''}
+    </div>`;
+  }).join('');
+  listEl.innerHTML = rows;
+}
+
+async function revokeInvite(code) {
+  if (!confirm(`Revogar o convite "${code}"? Esta ação é irreversível.`)) return;
+  const client = (typeof getSupabaseClient === 'function') ? getSupabaseClient() : null;
+  if (!client) return;
+  const { error } = await client.from('invites').delete().eq('code', code);
+  if (error) {
+    alert('Erro ao revogar: ' + error.message);
+    return;
+  }
+  loadInvitesList();
 }
 
 function savePerfilCasal() {
