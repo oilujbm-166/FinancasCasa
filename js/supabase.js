@@ -149,7 +149,9 @@ async function clearEncryptedApiKeyCloud() {
     await client.from('user_settings').update({
       encrypted_api_key: null,
       api_key_iv: null,
-      api_key_salt: null
+      api_key_salt: null,
+      encrypted_api_key_v2: null,
+      api_key_iv_v2: null
     }).eq('user_id', _currentUser.id);
     // Também limpa in-memory e o input da UI se já carregou
     GEMINI_API_KEY = '';
@@ -275,8 +277,19 @@ async function handleSignIn() {
   }
 
   const client = getSupabaseClient();
+
+  // Aloca o latch ANTES de signInWithPassword pra garantir que onAuthenticated
+  // (disparado pelo listener SIGNED_IN em paralelo) encontre o promise e espere.
+  let latchResolve, latchReject;
+  _unlockPromise = new Promise((res, rej) => { latchResolve = res; latchReject = rej; });
+  const settleLatch = (err) => {
+    _unlockPromise = null;
+    if (err) latchReject(err); else latchResolve();
+  };
+
   const { data, error } = await client.auth.signInWithPassword({ email, password });
   if (error) {
+    settleLatch();
     showAuthError(error.message === 'Invalid login credentials'
       ? 'Email ou senha incorretos.'
       : error.message);
@@ -285,35 +298,34 @@ async function handleSignIn() {
   _derivedCryptoKey = null;
   _sessionPassword = password;
 
-  // Desembrulha MasterKey se o usuário já tiver sido provisionado (signup pós-Fase-C).
-  // Contas antigas não têm wrapped_master_key — Fase G migra no onAuthenticated.
   const userId = data.user?.id;
-  if (userId) {
+  if (!userId) { settleLatch(); return; }
+
+  try {
     const { data: settings } = await client
       .from('user_settings')
       .select('wrapped_master_key, master_key_iv, master_key_salt')
       .eq('user_id', userId)
       .maybeSingle();
     if (settings?.wrapped_master_key) {
-      try {
-        const salt = base64ToBuf(settings.master_key_salt);
-        const pwKey = await derivePasswordKey(password, salt);
-        const rawMK = await unwrapMasterKey(
-          settings.wrapped_master_key,
-          settings.master_key_iv,
-          pwKey
-        );
-        _masterKey = await importMasterKey(rawMK);
-        sessionStorage.setItem('fc_mk_' + userId, serializeMasterKey(rawMK));
-        rawMK.fill(0);
-      } catch (e) {
-        // Raro: auth aceitou a senha mas o wrapped foi cifrado com outra (ex.: admin
-        // trocou senha sem re-wrappar). Força signOut pra evitar estado inconsistente.
-        showAuthError('Falha ao desbloquear seus dados. Entre em contato com o admin.');
-        await client.auth.signOut();
-        return;
-      }
+      const salt = base64ToBuf(settings.master_key_salt);
+      const pwKey = await derivePasswordKey(password, salt);
+      const rawMK = await unwrapMasterKey(
+        settings.wrapped_master_key,
+        settings.master_key_iv,
+        pwKey
+      );
+      _masterKey = await importMasterKey(rawMK);
+      sessionStorage.setItem('fc_mk_' + userId, serializeMasterKey(rawMK));
+      rawMK.fill(0);
     }
+    // Usuário sem wrapped_master_key (conta antiga) segue — Fase G migrará depois.
+    settleLatch();
+  } catch (e) {
+    // Senha aceita pelo auth mas wrapped decifra errado: estado inconsistente. Force signOut.
+    settleLatch(e);
+    showAuthError('Falha ao desbloquear seus dados. Entre em contato com o admin.');
+    await client.auth.signOut();
   }
 }
 
@@ -509,8 +521,19 @@ let _sessionPassword = null;
 // ou gerada no signup. Necessária pra criptografar/decifrar user_data.encrypted_data
 // e user_settings.encrypted_api_key_v2. _sessionPassword é legado (Fase J remove).
 let _masterKey = null;
+// Latch pra serializar onAuthenticated com o unwrap/migração em handleSignIn.
+// O listener SIGNED_IN do Supabase dispara onAuthenticated em paralelo assim que
+// signInWithPassword resolve, antes de handleSignIn conseguir popular _masterKey.
+// onAuthenticated espera este latch antes de chamar loadFromSupabase. null = sem unlock em curso.
+let _unlockPromise = null;
 
 async function onAuthenticated() {
+  // Espera o unwrap/migração em handleSignIn terminar antes de tocar user_data.
+  if (_unlockPromise) {
+    try { await _unlockPromise; }
+    catch (e) { console.warn('onAuthenticated abortado: unlock falhou'); return; }
+  }
+
   updateSyncStatus('syncing', 'Sincronizando...');
   updateAccountInfo();
 
@@ -523,8 +546,11 @@ async function onAuthenticated() {
     updateSyncStatus('error', 'Erro no sync');
   }
 
-  // Try to restore encrypted API key
-  if (_sessionPassword) {
+  // Restaura chave API criptografada. Preferência: v2 (MasterKey). Fallback: v1 (senha),
+  // usado até Fase G migrar todos pros novos campos _v2.
+  if (_masterKey) {
+    await tryRestoreApiKeyV2();
+  } else if (_sessionPassword) {
     await tryRestoreEncryptedApiKey(_sessionPassword);
   }
 
@@ -568,6 +594,14 @@ async function saveToSupabase() {
   const client = getSupabaseClient();
   if (!client) return;
 
+  if (!_masterKey) {
+    // Sem MasterKey não dá pra criptografar. Acontece pra usuário antigo antes da
+    // Fase G migrar, ou se sessionStorage foi limpo e Fase H ainda vai pedir unlock.
+    console.warn('saveToSupabase: MasterKey ausente, skip cloud save');
+    updateSyncStatus('error', 'Faça login para salvar');
+    return;
+  }
+
   updateSyncStatus('syncing', 'Salvando...');
 
   try {
@@ -580,11 +614,17 @@ async function saveToSupabase() {
       perfil: (typeof perfil !== 'undefined') ? perfil : { casal: '' }
     };
 
+    const enc = await encryptJson(_masterKey, blob);
+
     const { error } = await client
       .from('user_data')
       .upsert({
         user_id: _currentUser.id,
-        data: blob
+        encrypted_data: enc.ciphertext,
+        data_iv: enc.iv,
+        data: null,
+        data_version: 1,
+        updated_at: new Date().toISOString()
       }, { onConflict: 'user_id' });
 
     if (error) throw error;
@@ -604,14 +644,29 @@ async function loadFromSupabase() {
   try {
     const { data: row, error } = await client
       .from('user_data')
-      .select('data, updated_at')
+      .select('data, encrypted_data, data_iv, updated_at')
       .eq('user_id', _currentUser.id)
       .maybeSingle();
 
     if (error) throw error;
-    if (!row || !row.data) return; // no cloud data
+    if (!row) return;
 
-    const cloudData = row.data;
+    let cloudData;
+    if (row.encrypted_data && _masterKey) {
+      try {
+        cloudData = await decryptJson(_masterKey, row.encrypted_data, row.data_iv);
+      } catch (e) {
+        // Ciphertext corrompido ou MK errada: desloga pra evitar sobrescrever com dados ruins.
+        showAuthError('Não foi possível descriptografar seus dados. Faça login novamente.');
+        await handleSignOut();
+        return;
+      }
+    } else if (row.data) {
+      // Legado plaintext — usuário pré-envelope. Fase G converte no próximo login.
+      cloudData = row.data;
+    } else {
+      return;
+    }
 
     // Populate globals from cloud data
     if (cloudData.customCategories && Object.keys(cloudData.customCategories).length > 0) {
@@ -788,19 +843,62 @@ async function tryRestoreEncryptedApiKey(password) {
   }
 }
 
+// === ENCRYPTION: API Key v2 (cifrada pela MasterKey, não pela senha) ===
+
+async function saveApiKeyEncryptedV2(plainKey) {
+  if (!_currentUser || !plainKey || !_masterKey) return;
+  const client = getSupabaseClient();
+  if (!client) return;
+  try {
+    const enc = await encryptJson(_masterKey, { key: plainKey });
+    await client.from('user_settings').upsert({
+      user_id: _currentUser.id,
+      encrypted_api_key_v2: enc.ciphertext,
+      api_key_iv_v2: enc.iv
+    }, { onConflict: 'user_id' });
+  } catch (e) {
+    console.warn('Failed to encrypt/save API key v2:', e);
+  }
+}
+
+async function tryRestoreApiKeyV2() {
+  if (!_currentUser || !_masterKey) return;
+  const client = getSupabaseClient();
+  if (!client) return;
+  try {
+    const { data: row } = await client
+      .from('user_settings')
+      .select('encrypted_api_key_v2, api_key_iv_v2')
+      .eq('user_id', _currentUser.id)
+      .maybeSingle();
+    if (!row?.encrypted_api_key_v2) return;
+    const obj = await decryptJson(_masterKey, row.encrypted_api_key_v2, row.api_key_iv_v2);
+    if (!obj?.key) return;
+    GEMINI_API_KEY = obj.key;
+    const input = document.getElementById('apiKeyInput');
+    if (input) input.value = obj.key;
+    const status = document.getElementById('apiKeyStatus');
+    if (status) status.innerHTML = '<span style="color:var(--accent3)">Chave restaurada (criptografada na nuvem)</span>';
+    const connStatus = document.getElementById('connectionStatus');
+    if (connStatus) connStatus.innerHTML = '<div class="alert alert-success">API conectada</div>';
+  } catch (e) {
+    console.warn('API key v2 decryption failed:', e);
+  }
+}
+
 // Override saveApiKeyToStorage to also encrypt to cloud
 const _originalSaveApiKey = typeof saveApiKeyToStorage === 'function' ? saveApiKeyToStorage : null;
 function saveApiKeyToStorageWithCloud(key) {
-  // Local storage as fallback for offline mode
   if (_isOfflineMode) {
     try { localStorage.setItem(LS_KEY_API, key); } catch (e) {}
     return;
   }
-  // In authenticated mode: encrypt and store in cloud, don't store plaintext locally
-  if (_currentUser && _sessionPassword) {
+  if (_currentUser && _masterKey) {
+    saveApiKeyEncryptedV2(key);
+  } else if (_currentUser && _sessionPassword) {
+    // Legado: conta ainda em cripto v1 (pré-Fase-G). Fase J remove este ramo.
     saveEncryptedApiKey(key, _sessionPassword);
   } else {
-    // Fallback: local only
     try { localStorage.setItem(LS_KEY_API, key); } catch (e) {}
   }
 }
