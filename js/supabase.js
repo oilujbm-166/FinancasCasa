@@ -47,6 +47,8 @@ async function initAuth() {
       hideAuthGate();
       onAuthenticated();
     } else if (event === 'SIGNED_OUT') {
+      if (_currentUser) sessionStorage.removeItem('fc_mk_' + _currentUser.id);
+      _masterKey = null;
       _currentUser = null;
       _derivedCryptoKey = null;
       _inPasswordRecovery = false;
@@ -280,9 +282,39 @@ async function handleSignIn() {
       : error.message);
     return;
   }
-  // Store password hash for API key decryption during this session
-  _derivedCryptoKey = null; // will derive on demand
+  _derivedCryptoKey = null;
   _sessionPassword = password;
+
+  // Desembrulha MasterKey se o usuário já tiver sido provisionado (signup pós-Fase-C).
+  // Contas antigas não têm wrapped_master_key — Fase G migra no onAuthenticated.
+  const userId = data.user?.id;
+  if (userId) {
+    const { data: settings } = await client
+      .from('user_settings')
+      .select('wrapped_master_key, master_key_iv, master_key_salt')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (settings?.wrapped_master_key) {
+      try {
+        const salt = base64ToBuf(settings.master_key_salt);
+        const pwKey = await derivePasswordKey(password, salt);
+        const rawMK = await unwrapMasterKey(
+          settings.wrapped_master_key,
+          settings.master_key_iv,
+          pwKey
+        );
+        _masterKey = await importMasterKey(rawMK);
+        sessionStorage.setItem('fc_mk_' + userId, serializeMasterKey(rawMK));
+        rawMK.fill(0);
+      } catch (e) {
+        // Raro: auth aceitou a senha mas o wrapped foi cifrado com outra (ex.: admin
+        // trocou senha sem re-wrappar). Força signOut pra evitar estado inconsistente.
+        showAuthError('Falha ao desbloquear seus dados. Entre em contato com o admin.');
+        await client.auth.signOut();
+        return;
+      }
+    }
+  }
 }
 
 // handleSignUp: legado. Mantido como atalho para abrir a view de signup com código (Fase 1.1).
@@ -429,6 +461,8 @@ async function completeSignup() {
 async function handleSignOut() {
   const client = getSupabaseClient();
   if (client) await client.auth.signOut();
+  if (_currentUser) sessionStorage.removeItem('fc_mk_' + _currentUser.id);
+  _masterKey = null;
   _currentUser = null;
   _derivedCryptoKey = null;
   _sessionPassword = null;
