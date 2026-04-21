@@ -364,14 +364,66 @@ async function completeSignup() {
     showSignupError('Cliente Supabase não disponível. Recarregue a página e tente fazer login.');
     return;
   }
-  // Guarda a senha em memória pra cripto da API key Gemini funcionar nesta sessão
+  // Guarda a senha em memória pra cripto v1 da API key Gemini funcionar nesta sessão.
+  // Legado: removido na Fase J quando a cripto v1 for extinta.
   _sessionPassword = password;
   await client.auth.setSession({
     access_token: session.access_token,
     refresh_token: session.refresh_token,
   });
-  // setSession dispara onAuthStateChange → SIGNED_IN → onAuthenticated → initApp.
-  // Não precisa fazer mais nada aqui.
+  // setSession dispara onAuthStateChange → SIGNED_IN → onAuthenticated (fire-and-forget).
+  // Abaixo: inicializa envelope encryption. onAuthenticated corre em paralelo, mas o
+  // loadFromSupabase pré-Fase-E só lê user_data.data (NULL pra conta nova) → no-op seguro.
+
+  const userId = session.user?.id;
+  if (!userId) {
+    showSignupError('Sessão criada sem userId. Faça login manual.');
+    return;
+  }
+  try {
+    const rawMK = await generateMasterKeyRaw();
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const pwKey = await derivePasswordKey(password, salt);
+    const wrapped = await wrapMasterKey(rawMK, pwKey);
+    _masterKey = await importMasterKey(rawMK);
+
+    const emptyBlob = {
+      transactions: [],
+      budgetData: [],
+      goals: [],
+      investments: [],
+      aiHistory: [],
+      customCategories: {},
+      planejamentoMedica: null,
+      perfil: { casal: '' }
+    };
+    const encBlob = await encryptJson(_masterKey, emptyBlob);
+
+    const { error: settingsErr } = await client.from('user_settings').upsert({
+      user_id: userId,
+      wrapped_master_key: wrapped.ciphertext,
+      master_key_iv: wrapped.iv,
+      master_key_salt: bufToBase64(salt)
+    }, { onConflict: 'user_id' });
+    if (settingsErr) throw settingsErr;
+
+    const { error: dataErr } = await client.from('user_data').upsert({
+      user_id: userId,
+      encrypted_data: encBlob.ciphertext,
+      data_iv: encBlob.iv,
+      data_version: 1,
+      data: null,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id' });
+    if (dataErr) throw dataErr;
+
+    sessionStorage.setItem('fc_mk_' + userId, serializeMasterKey(rawMK));
+    rawMK.fill(0);
+  } catch (e) {
+    console.error('Falha ao inicializar envelope encryption no signup:', e);
+    // Conta já existe (invite consumido). Próximo login cai na migração lazy da Fase G.
+    showSignupError('Erro na criptografia inicial. Faça logout e login de novo em alguns minutos.');
+  }
 }
 
 async function handleSignOut() {
@@ -419,6 +471,10 @@ function clearAuthMessages() {
 
 // === POST-AUTH FLOW ===
 let _sessionPassword = null;
+// MasterKey AES-GCM 256 (CryptoKey). Derivada da wrapped_master_key via senha no login
+// ou gerada no signup. Necessária pra criptografar/decifrar user_data.encrypted_data
+// e user_settings.encrypted_api_key_v2. _sessionPassword é legado (Fase J remove).
+let _masterKey = null;
 
 async function onAuthenticated() {
   updateSyncStatus('syncing', 'Sincronizando...');
