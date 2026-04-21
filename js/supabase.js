@@ -272,7 +272,7 @@ async function clearEncryptedApiKeyCloud() {
 // === UI HELPERS: RESET DE SENHA ===
 // Helper: esconde todas as views do auth-card de uma vez (login, signup, forgot, reset)
 function _hideAllAuthViews() {
-  ['authForm', 'authSignupForm', 'authForgotForm', 'authResetForm', 'authResetDestroyConfirm'].forEach(id => {
+  ['authForm', 'authSignupForm', 'authForgotForm', 'authResetForm', 'authResetDestroyConfirm', 'authUnlockForm'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -580,6 +580,51 @@ async function completeSignup() {
   }
 }
 
+async function handleUnlockSubmit() {
+  const password = (document.getElementById('authUnlockPassword') || {}).value || '';
+  const errEl = document.getElementById('authUnlockError');
+  const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; } };
+  if (errEl) errEl.style.display = 'none';
+  if (!password) { showErr('Digite sua senha.'); return; }
+
+  const client = getSupabaseClient();
+  if (!client || !_currentUser) { showErr('Sessão inválida. Faça login de novo.'); await handleSignOut(); return; }
+
+  try {
+    const { data: settings } = await client.from('user_settings')
+      .select('wrapped_master_key, master_key_iv, master_key_salt')
+      .eq('user_id', _currentUser.id).maybeSingle();
+    if (!settings?.wrapped_master_key) {
+      // Conta sem MK ainda (pré-Fase-C/G). Força login completo pra migração rodar.
+      showErr('Conta sem chave mestra. Faça login completo.');
+      await handleSignOut();
+      return;
+    }
+    const salt = base64ToBuf(settings.master_key_salt);
+    const pwKey = await derivePasswordKey(password, salt);
+    const raw = await unwrapMasterKey(
+      settings.wrapped_master_key,
+      settings.master_key_iv,
+      pwKey
+    );
+    _masterKey = await importMasterKey(raw);
+    sessionStorage.setItem('fc_mk_' + _currentUser.id, serializeMasterKey(raw));
+    raw.fill(0);
+    _sessionPassword = password;
+    _unlockAttempts = 0;
+    hideAuthGate();
+    onAuthenticated();
+  } catch (e) {
+    _unlockAttempts++;
+    if (_unlockAttempts >= 5) {
+      showErr('5 tentativas erradas. Encerrando sessão por segurança.');
+      setTimeout(() => handleSignOut(), 1500);
+    } else {
+      showErr(`Senha incorreta (${_unlockAttempts}/5).`);
+    }
+  }
+}
+
 async function handleSignOut() {
   const client = getSupabaseClient();
   if (client) await client.auth.signOut();
@@ -636,12 +681,38 @@ let _masterKey = null;
 // signInWithPassword resolve, antes de handleSignIn conseguir popular _masterKey.
 // onAuthenticated espera este latch antes de chamar loadFromSupabase. null = sem unlock em curso.
 let _unlockPromise = null;
+// Tentativas falhadas no modal de unlock (Fase H). 5 seguidas forçam signOut.
+let _unlockAttempts = 0;
 
 async function onAuthenticated() {
   // Espera o unwrap/migração em handleSignIn terminar antes de tocar user_data.
   if (_unlockPromise) {
     try { await _unlockPromise; }
     catch (e) { console.warn('onAuthenticated abortado: unlock falhou'); return; }
+  }
+
+  // F5 ou nova aba: Supabase restaura sessão via cookie mas _masterKey é perdida
+  // (module-scope). Tenta do sessionStorage; se não estiver lá, pede unlock.
+  if (!_masterKey && _currentUser) {
+    const stored = sessionStorage.getItem('fc_mk_' + _currentUser.id);
+    if (stored) {
+      try {
+        const raw = deserializeMasterKey(stored);
+        _masterKey = await importMasterKey(raw);
+        raw.fill(0);
+      } catch (e) {
+        sessionStorage.removeItem('fc_mk_' + _currentUser.id);
+      }
+    }
+    if (!_masterKey) {
+      showAuthGate();
+      _hideAllAuthViews();
+      const form = document.getElementById('authUnlockForm');
+      if (form) form.style.display = 'block';
+      const input = document.getElementById('authUnlockPassword');
+      if (input) { input.value = ''; input.focus(); }
+      return;
+    }
   }
 
   updateSyncStatus('syncing', 'Sincronizando...');

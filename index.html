@@ -131,6 +131,22 @@
       </div>
     </div>
 
+    <!-- UNLOCK (sessão Supabase restaurada mas sem MasterKey em sessionStorage — nova aba, mobile) -->
+    <div id="authUnlockForm" style="display:none">
+      <div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">
+        Você tem uma sessão ativa, mas seus dados estão criptografados nesta aba. Digite sua senha para desbloquear.
+      </div>
+      <div class="form-group">
+        <label class="form-label">Senha</label>
+        <input class="form-input" type="password" id="authUnlockPassword" placeholder="••••••••••••" autocomplete="current-password" minlength="12" onkeypress="if(event.key==='Enter') handleUnlockSubmit()">
+      </div>
+      <div id="authUnlockError" class="alert alert-danger" style="display:none"></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="handleUnlockSubmit()">Desbloquear</button>
+      <div style="text-align:center;margin-top:10px">
+        <button class="btn btn-ghost" style="font-size:12px;color:var(--text3)" onclick="handleSignOut()">Sair</button>
+      </div>
+    </div>
+
     <!-- CONFIRMAÇÃO DE DESTRUIÇÃO (usuário esqueceu senha antiga e aceita perder dados) -->
     <div id="authResetDestroyConfirm" style="display:none">
       <div class="alert alert-danger" style="font-size:13px;line-height:1.5;margin-bottom:12px">
