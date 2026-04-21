@@ -106,10 +106,14 @@
     <!-- DEFINIR NOVA SENHA (após clicar no link do email, PASSWORD_RECOVERY) -->
     <div id="authResetForm" style="display:none">
       <div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">
-        Defina sua nova senha abaixo.
+        Defina sua nova senha. Seus dados permanecem intactos se você digitar a senha atual corretamente.
       </div>
       <div class="alert alert-warn" style="font-size:12px;line-height:1.5;margin-bottom:12px">
-        <strong>Atenção:</strong> trocar a senha invalida sua chave de API do Gemini que estava salva na nuvem (ela era criptografada com a senha antiga). Depois de definir a nova senha, você precisará colar a chave de novo em Configurações → IA.
+        <strong>Esqueceu a senha atual?</strong> Por segurança, seus dados financeiros são criptografados com ela — sem a antiga, a única saída é <strong>apagar tudo</strong> (botão vermelho no rodapé).
+      </div>
+      <div class="form-group">
+        <label class="form-label">Senha atual</label>
+        <input class="form-input" type="password" id="authOldPassword" placeholder="••••••••••••" autocomplete="current-password" minlength="12">
       </div>
       <div class="form-group">
         <label class="form-label">Nova senha (mínimo 12 caracteres)</label>
@@ -122,6 +126,30 @@
       <div id="authResetError" class="alert alert-danger" style="display:none"></div>
       <div id="authResetInfo" class="alert alert-success" style="display:none"></div>
       <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="completePasswordReset()">Definir nova senha</button>
+      <div style="text-align:center;margin-top:10px">
+        <button class="btn btn-ghost" style="font-size:12px;color:var(--danger)" onclick="showLostPasswordConfirm()">Esqueci a senha atual (zerar dados)</button>
+      </div>
+    </div>
+
+    <!-- CONFIRMAÇÃO DE DESTRUIÇÃO (usuário esqueceu senha antiga e aceita perder dados) -->
+    <div id="authResetDestroyConfirm" style="display:none">
+      <div class="alert alert-danger" style="font-size:13px;line-height:1.5;margin-bottom:12px">
+        <strong>⚠️ Todos os seus dados financeiros serão apagados.</strong><br>
+        Transações, metas, investimentos, planejamento médico — tudo. Essa ação é <strong>irreversível</strong>. Defina uma nova senha abaixo para prosseguir.
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nova senha (mínimo 12 caracteres)</label>
+        <input class="form-input" type="password" id="authDestroyNewPassword" placeholder="••••••••••••" autocomplete="new-password" minlength="12">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirme a nova senha</label>
+        <input class="form-input" type="password" id="authDestroyNewPasswordConfirm" placeholder="••••••••••••" autocomplete="new-password" minlength="12">
+      </div>
+      <div id="authDestroyError" class="alert alert-danger" style="display:none"></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:12px;background:var(--danger);border-color:var(--danger)" onclick="handleLostOldPassword()">Sim, zerar TODOS os dados e redefinir senha</button>
+      <div style="text-align:center;margin-top:10px">
+        <button class="btn btn-ghost" style="font-size:12px;color:var(--text3)" onclick="showResetPasswordView()">← Voltar (tenho a senha atual)</button>
+      </div>
     </div>
   </div>
 </div>

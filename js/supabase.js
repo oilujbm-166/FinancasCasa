@@ -100,45 +100,152 @@ async function handleForgotPassword() {
 }
 
 async function completePasswordReset() {
-  const p1 = (document.getElementById('authNewPassword') || {}).value || '';
-  const p2 = (document.getElementById('authNewPasswordConfirm') || {}).value || '';
+  const oldP = (document.getElementById('authOldPassword') || {}).value || '';
+  const newP = (document.getElementById('authNewPassword') || {}).value || '';
+  const confP = (document.getElementById('authNewPasswordConfirm') || {}).value || '';
   clearResetMessages();
-  if (!p1 || !p2) {
-    showResetError('Preencha os dois campos.');
-    return;
-  }
-  if (p1.length < 12) {
-    showResetError('Senha deve ter no mínimo 12 caracteres.');
-    return;
-  }
-  if (p1 !== p2) {
-    showResetError('As senhas não coincidem.');
-    return;
-  }
-  const client = getSupabaseClient();
-  if (!client) {
-    showResetError('Serviço indisponível. Tente novamente.');
-    return;
-  }
-  const { data, error } = await client.auth.updateUser({ password: p1 });
-  if (error) {
-    showResetError(error.message || 'Não foi possível atualizar a senha.');
-    return;
-  }
-  // Zera a chave API criptografada — a chave AES que protegia ela era derivada da senha antiga,
-  // então virou lixo. Usuário precisará recolar em Configurações.
-  await clearEncryptedApiKeyCloud();
+  if (!oldP || !newP || !confP) { showResetError('Preencha os 3 campos.'); return; }
+  if (newP.length < 12) { showResetError('Nova senha precisa ter 12+ caracteres.'); return; }
+  if (newP !== confP) { showResetError('As novas senhas não coincidem.'); return; }
 
+  const client = getSupabaseClient();
+  if (!client || !_currentUser) { showResetError('Sessão inválida. Recarregue a página.'); return; }
+
+  const { data: settings } = await client.from('user_settings')
+    .select('wrapped_master_key, master_key_iv, master_key_salt')
+    .eq('user_id', _currentUser.id).maybeSingle();
+  if (!settings?.wrapped_master_key) {
+    // Conta pré-Fase-C/G, sem wrapped. Usuário precisa logar uma vez pra migração lazy rodar.
+    showResetError('Conta ainda não migrada pro novo esquema. Faça login normal uma vez e tente resetar depois. Ou use "Esqueci a senha atual" pra começar do zero.');
+    return;
+  }
+
+  // 1. Desembrulha MK com a senha antiga
+  let rawMK;
+  try {
+    const oldSalt = base64ToBuf(settings.master_key_salt);
+    const oldPwKey = await derivePasswordKey(oldP, oldSalt);
+    rawMK = await unwrapMasterKey(settings.wrapped_master_key, settings.master_key_iv, oldPwKey);
+  } catch (e) {
+    showResetError('Senha atual incorreta.');
+    return;
+  }
+
+  // 2. Re-wrappa com a senha nova
+  const newSalt = crypto.getRandomValues(new Uint8Array(16));
+  const newPwKey = await derivePasswordKey(newP, newSalt);
+  const newWrapped = await wrapMasterKey(rawMK, newPwKey);
+
+  // 3. Atualiza senha no Supabase Auth
+  const { error: updErr } = await client.auth.updateUser({ password: newP });
+  if (updErr) { rawMK.fill(0); showResetError(updErr.message || 'Falha ao atualizar senha.'); return; }
+
+  // 4. Persiste novo wrapped
+  const { error: persistErr } = await client.from('user_settings').update({
+    wrapped_master_key: newWrapped.ciphertext,
+    master_key_iv: newWrapped.iv,
+    master_key_salt: bufToBase64(newSalt)
+  }).eq('user_id', _currentUser.id);
+  if (persistErr) {
+    // Senha Supabase já mudou mas wrapped ainda é o antigo — próximo login vai falhar no unwrap.
+    // Admin precisa intervir ou usuário usa "Esqueci a senha atual" na próxima.
+    rawMK.fill(0);
+    showResetError('Falha crítica ao salvar nova chave. Contate o admin.');
+    return;
+  }
+
+  // 5. Atualiza memória + sessionStorage
+  _masterKey = await importMasterKey(rawMK);
+  sessionStorage.setItem('fc_mk_' + _currentUser.id, serializeMasterKey(rawMK));
+  rawMK.fill(0);
+  _sessionPassword = newP;
   _inPasswordRecovery = false;
-  _sessionPassword = p1;
-  if (data?.user) _currentUser = data.user;
-  showResetInfo('Senha atualizada! Entrando no app...');
-  // Pequeno delay para o usuário ver a confirmação, depois segue o fluxo autenticado normal
+  showResetInfo('Senha trocada! Dados preservados. Entrando...');
+  setTimeout(() => { hideResetPasswordView(); hideAuthGate(); onAuthenticated(); }, 800);
+}
+
+// Path "esqueci a senha atual": confirma 2x que quer perder todos os dados, então
+// atualiza senha Supabase, gera MK nova, zera user_data encrypted_data e api_key_v2.
+function showLostPasswordConfirm() {
+  clearResetMessages();
+  _hideAllAuthViews();
+  const view = document.getElementById('authResetDestroyConfirm');
+  if (view) view.style.display = 'block';
+}
+
+async function handleLostOldPassword() {
+  const newP = (document.getElementById('authDestroyNewPassword') || {}).value || '';
+  const confP = (document.getElementById('authDestroyNewPasswordConfirm') || {}).value || '';
+  const errEl = document.getElementById('authDestroyError');
+  const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; } };
+  if (errEl) errEl.style.display = 'none';
+
+  if (!newP || !confP) { showErr('Preencha os 2 campos.'); return; }
+  if (newP.length < 12) { showErr('Nova senha precisa ter 12+ caracteres.'); return; }
+  if (newP !== confP) { showErr('As senhas não coincidem.'); return; }
+
+  const client = getSupabaseClient();
+  if (!client || !_currentUser) { showErr('Sessão inválida. Recarregue a página.'); return; }
+
+  // 1. Atualiza senha no Supabase Auth
+  const { error: updErr } = await client.auth.updateUser({ password: newP });
+  if (updErr) { showErr(updErr.message || 'Falha ao atualizar senha.'); return; }
+
+  // 2. Gera MK nova + wrap com senha nova
+  const rawMK = await generateMasterKeyRaw();
+  const newSalt = crypto.getRandomValues(new Uint8Array(16));
+  const newPwKey = await derivePasswordKey(newP, newSalt);
+  const newWrapped = await wrapMasterKey(rawMK, newPwKey);
+  _masterKey = await importMasterKey(rawMK);
+
+  // 3. Blob vazio criptografado com a MK nova
+  const emptyBlob = {
+    transactions: [], budgetData: [], goals: [], investments: [], aiHistory: [],
+    customCategories: {}, planejamentoMedica: null, perfil: { casal: '' }
+  };
+  const encEmpty = await encryptJson(_masterKey, emptyBlob);
+
+  // 4. Persiste: wrapped nova, zera v1+v2 API keys
+  const { error: sErr } = await client.from('user_settings').update({
+    wrapped_master_key: newWrapped.ciphertext,
+    master_key_iv: newWrapped.iv,
+    master_key_salt: bufToBase64(newSalt),
+    encrypted_api_key: null,
+    api_key_iv: null,
+    api_key_salt: null,
+    encrypted_api_key_v2: null,
+    api_key_iv_v2: null
+  }).eq('user_id', _currentUser.id);
+  if (sErr) { rawMK.fill(0); showErr('Falha ao zerar settings. Contate o admin.'); return; }
+
+  // 5. Zera user_data (blob antigo vira inaccessível anyway — MK antiga perdida)
+  const { error: dErr } = await client.from('user_data').update({
+    encrypted_data: encEmpty.ciphertext,
+    data_iv: encEmpty.iv,
+    data_version: 1,
+    data: null,
+    updated_at: new Date().toISOString()
+  }).eq('user_id', _currentUser.id);
+  if (dErr) console.warn('Falha ao zerar user_data:', dErr);
+
+  // 6. Estado
+  sessionStorage.setItem('fc_mk_' + _currentUser.id, serializeMasterKey(rawMK));
+  rawMK.fill(0);
+  _sessionPassword = newP;
+  _inPasswordRecovery = false;
+  GEMINI_API_KEY = '';
+
+  // Zera coleções in-memory pra não vazar dados antigos no render até loadFromSupabase
+  if (typeof transactions !== 'undefined') transactions.length = 0;
+  if (typeof goals !== 'undefined') goals.length = 0;
+  if (typeof investments !== 'undefined') investments.length = 0;
+  if (typeof aiHistory !== 'undefined') aiHistory.length = 0;
+
   setTimeout(() => {
-    hideResetPasswordView();
+    _hideAllAuthViews();
     hideAuthGate();
     onAuthenticated();
-  }, 800);
+  }, 400);
 }
 
 async function clearEncryptedApiKeyCloud() {
@@ -165,7 +272,7 @@ async function clearEncryptedApiKeyCloud() {
 // === UI HELPERS: RESET DE SENHA ===
 // Helper: esconde todas as views do auth-card de uma vez (login, signup, forgot, reset)
 function _hideAllAuthViews() {
-  ['authForm', 'authSignupForm', 'authForgotForm', 'authResetForm'].forEach(id => {
+  ['authForm', 'authSignupForm', 'authForgotForm', 'authResetForm', 'authResetDestroyConfirm'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
