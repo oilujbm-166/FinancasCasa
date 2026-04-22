@@ -1,3 +1,6 @@
+// v15: Convites usam supabase.functions.invoke + classificação estruturada de erros
+//      (FunctionsHttpError/FETCH/Relay) em generateInvite (app.js) e completeSignup (supabase.js).
+//      Mudança no JS precisa invalidar cache pra clientes existentes pegarem a nova lógica.
 // v14: processarExtrato faz repair de JSON malformado do Gemini + detecta MAX_TOKENS +
 //      maxTokens de 8000 pra 16000. Corrige bug "Expected ',' or ']' after array element".
 // v13: Backup JSON agora inclui perfil e planejamentoMedica — mudança em js/app.js precisa
@@ -9,7 +12,7 @@
 // v8: Perfil dinâmico na sidebar — avatar e nome do lar derivados de perfil.casal.
 // v7: Fase 0 — retry com backoff + fallback entre modelos Gemini + mensagens de erro classificadas.
 // Bump força reinstalação do SW para que browsers existentes peguem os JS novos.
-const CACHE_NAME = 'financascasa-v14';
+const CACHE_NAME = 'financascasa-v15';
 const ASSETS = [
   './',
   './index.html',

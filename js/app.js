@@ -690,29 +690,56 @@ async function generateInvite() {
     return;
   }
 
-  let res;
-  try {
-    res = await fetch(`${SUPABASE_URL}/functions/v1/generate-invite`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + session.access_token,
-        'apikey': SUPABASE_ANON_KEY,
-      },
-      body: JSON.stringify({ email: trimmed, durationHours: parseInt(durationStr, 10) }),
-    });
-  } catch (e) {
-    if (errEl) { errEl.textContent = 'Falha de rede ao chamar a função.'; errEl.style.display = 'block'; }
-    return;
-  }
+  // functions.invoke injeta Authorization/apikey e devolve { data, error } estruturado.
+  // error pode ser FunctionsHttpError (HTTP não-2xx), FunctionsFetchError (rede/CORS/DNS)
+  // ou FunctionsRelayError (gateway Supabase com problema).
+  const { data, error } = await client.functions.invoke('generate-invite', {
+    body: { email: trimmed, durationHours: parseInt(durationStr, 10) },
+  });
 
-  let data = null;
-  try { data = await res.json(); } catch (e) {}
-  if (!res.ok) {
-    if (errEl) {
-      errEl.textContent = `Erro ao gerar convite (HTTP ${res.status}): ${data?.error || 'sem detalhes'}`;
-      errEl.style.display = 'block';
+  if (error) {
+    let msg;
+    const name = error.name || '';
+
+    if (name === 'FunctionsHttpError' && error.context) {
+      const status = error.context.status;
+      // Lê body bruto (texto) + tenta JSON. Gateway retorna {code,message}, função retorna {error}.
+      let raw = '';
+      let body = null;
+      try { raw = await error.context.clone().text(); } catch (_) {}
+      try { body = raw ? JSON.parse(raw) : null; } catch (_) {}
+      const detail = body?.error || body?.message || body?.code || raw || '';
+      console.warn('generate-invite falhou:', { name, status, body, raw, error });
+
+      if (status === 401) {
+        // Distingue 401 do gateway (code=UNAUTHORIZED_*) vs 401 da função (error=invalid token/unauthenticated)
+        const fromGateway = !!body?.code && String(body.code).startsWith('UNAUTHORIZED');
+        if (fromGateway) {
+          msg = `Servidor não aceitou a autenticação (${body.code}). Faça logout e login de novo — se persistir, o token pode não estar sendo enviado.`;
+        } else {
+          msg = 'Sua sessão foi rejeitada pelo servidor. Faça logout e login de novo.';
+        }
+      } else if (status === 404) {
+        msg = 'A função de convites não está deployada no servidor. Veja instruções em supabase/README.md.';
+      } else if (status === 400) {
+        msg = detail === 'invalid email'
+          ? 'Email inválido. Use o formato nome@dominio.com.'
+          : `Dados inválidos: ${detail || 'confira email e duração'}.`;
+      } else if (status === 500) {
+        msg = `Erro no servidor${detail ? ': ' + detail : ''}. Tente novamente em alguns minutos.`;
+      } else {
+        msg = `Erro ao gerar convite (HTTP ${status})${detail ? ': ' + detail : ''}.`;
+      }
+    } else if (name === 'FunctionsFetchError') {
+      console.warn('generate-invite falhou:', error);
+      msg = 'Não foi possível conectar ao servidor de convites. Verifique sua conexão. Se persistir, a função pode não estar deployada — veja supabase/README.md.';
+    } else if (name === 'FunctionsRelayError') {
+      msg = 'O gateway do Supabase não respondeu. Tente novamente em alguns segundos.';
+    } else {
+      msg = 'Erro inesperado ao gerar convite. Recarregue a página e tente de novo.';
     }
+
+    if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
     return;
   }
 

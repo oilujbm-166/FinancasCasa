@@ -467,39 +467,44 @@ async function completeSignup() {
     return;
   }
 
-  const url = `${SUPABASE_URL}/functions/v1/redeem-invite`;
-  let res;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // apikey é exigido pelo gateway das Edge Functions mesmo quando verify_jwt=false
-        'apikey': SUPABASE_ANON_KEY,
-      },
-      body: JSON.stringify({ email, code, password }),
-    });
-  } catch (e) {
-    showSignupError('Falha de rede. Verifique sua conexão e tente novamente.');
+  const client = getSupabaseClient();
+  if (!client) {
+    showSignupError('Serviço indisponível no momento. Tente novamente em alguns segundos.');
     return;
   }
 
-  let data = null;
-  try { data = await res.json(); } catch (e) {}
+  // verify_jwt=false → aceita invoke pelo client anônimo. SDK injeta apikey.
+  const { data, error } = await client.functions.invoke('redeem-invite', {
+    body: { email, code, password },
+  });
 
-  if (!res.ok) {
-    // Mapeia HTTP status → mensagem amigável em PT-BR. Detalhes em supabase/functions/redeem-invite/index.ts
-    const errKind = data?.error || '';
-    let msg;
-    if (res.status === 400) msg = 'Dados inválidos. Verifique email, código e senha (mínimo 12 caracteres).';
-    else if (res.status === 403) msg = 'Esse código não é válido para este email. Confirme o email exato em que você recebeu o convite.';
-    else if (res.status === 404) msg = 'Código de convite inválido. Confira se digitou exatamente como recebeu.';
-    else if (res.status === 410 && errKind === 'code expired') msg = 'Este código expirou. Peça um novo ao administrador.';
-    else if (res.status === 410) msg = 'Este código já foi usado. Cada convite vale para uma conta só.';
-    else if (res.status === 429) msg = 'Muitas tentativas seguidas. Aguarde 1 hora antes de tentar de novo.';
-    else if (res.status === 500) msg = 'Erro ao criar conta no servidor. Tente novamente em alguns minutos.';
-    else msg = `Erro inesperado (${res.status}): ${errKind || 'sem detalhes'}.`;
-    showSignupError(msg);
+  if (error) {
+    console.warn('redeem-invite falhou:', error);
+    const name = error.name || '';
+
+    if (name === 'FunctionsHttpError' && error.context) {
+      const status = error.context.status;
+      let errKind = '';
+      try { const body = await error.context.json(); errKind = body?.error || ''; } catch (_) {}
+
+      // Mapa de status → mensagem amigável em PT-BR. Detalhes em supabase/functions/redeem-invite/index.ts
+      let msg;
+      if (status === 400) msg = 'Dados inválidos. Verifique email, código e senha (mínimo 12 caracteres).';
+      else if (status === 403) msg = 'Esse código não é válido para este email. Confirme o email exato em que você recebeu o convite.';
+      else if (status === 404) msg = 'Código de convite inválido. Confira se digitou exatamente como recebeu.';
+      else if (status === 410 && errKind === 'code expired') msg = 'Este código expirou. Peça um novo ao administrador.';
+      else if (status === 410) msg = 'Este código já foi usado. Cada convite vale para uma conta só.';
+      else if (status === 429) msg = 'Muitas tentativas seguidas. Aguarde 1 hora antes de tentar de novo.';
+      else if (status === 500) msg = 'Erro ao criar conta no servidor. Tente novamente em alguns minutos.';
+      else msg = `Erro inesperado (${status}): ${errKind || 'sem detalhes'}.`;
+      showSignupError(msg);
+    } else if (name === 'FunctionsFetchError') {
+      showSignupError('Não foi possível conectar ao servidor. Verifique sua conexão. Se persistir, a função de signup pode não estar deployada.');
+    } else if (name === 'FunctionsRelayError') {
+      showSignupError('O gateway do Supabase não respondeu. Tente novamente em alguns segundos.');
+    } else {
+      showSignupError('Erro inesperado no cadastro. Recarregue a página e tente de novo.');
+    }
     return;
   }
 
@@ -513,12 +518,8 @@ async function completeSignup() {
   }
 
   showSignupInfo('Conta criada! Entrando...');
-  const client = getSupabaseClient();
-  if (!client) {
-    showSignupError('Cliente Supabase não disponível. Recarregue a página e tente fazer login.');
-    return;
-  }
-  // Guarda a senha em memória pra cripto v1 da API key Gemini funcionar nesta sessão.
+  // `client` já foi obtido acima no gate de invoke. Guarda a senha em memória pra
+  // cripto v1 da API key Gemini funcionar nesta sessão.
   // Legado: removido na Fase J quando a cripto v1 for extinta.
   _sessionPassword = password;
   await client.auth.setSession({

@@ -3,3 +3,5 @@
 test.js
 # Lock files do MS Office (Word/Excel criam enquanto o arquivo está aberto)
 ~$*
+# Cache local do Supabase CLI (gerado em deploys, sem nada pra versionar)
+supabase/.temp/

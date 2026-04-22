@@ -1,0 +1,16 @@
+# Config do projeto Supabase — lido pelo CLI no deploy das Edge Functions.
+# Sem este arquivo, `supabase functions deploy <nome>` usa `verify_jwt = true` por padrão.
+
+project_id = "nlgqdvekpaxlmywowxnr"
+
+# generate-invite: a função valida o JWT internamente via `admin.auth.getUser(jwt)`.
+# verify_jwt no gateway está DESLIGADO porque o projeto usa JWT assimétrico (ES256) e o
+# gateway só aceita HS256 na validação automática — deixar o gateway validar quebrava com
+# UNAUTHORIZED_UNSUPPORTED_TOKEN_ALGORITHM. A validação interna via auth API aceita qualquer algoritmo.
+[functions.generate-invite]
+verify_jwt = false
+
+# redeem-invite: público por desenho (usuário novo ainda não tem sessão).
+# A função valida o código de convite + email contra a tabela invites antes de criar a conta.
+[functions.redeem-invite]
+verify_jwt = false

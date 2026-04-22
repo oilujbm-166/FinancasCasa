@@ -15,6 +15,33 @@ Usado pelo botão "Gerar convite" na tela de Configurações.
 Público. Aceita `{ email, code, password }` e cria a conta se o convite
 for válido. Rate limit: 5 tentativas por hash(IP) por hora.
 
+## JWT assimétrico (ES256) e `verify_jwt`
+
+O projeto usa **ECDSA (ES256)** pra assinar tokens de usuário. O gateway das Edge Functions
+só valida HS256 automaticamente — tokens ES256 batem em `UNAUTHORIZED_UNSUPPORTED_TOKEN_ALGORITHM`.
+
+Por isso [supabase/config.toml](config.toml) marca `verify_jwt = false` pras duas funções:
+- `generate-invite` faz validação interna via `admin.auth.getUser(jwt)` (aceita qualquer algoritmo).
+- `redeem-invite` é público por desenho (user novo ainda não tem sessão) e valida o código/email contra a tabela.
+
+**Se o deploy vier sem essa config**, o gateway volta a rejeitar ES256 e o botão "Gerar convite"
+mostra `UNAUTHORIZED_UNSUPPORTED_TOKEN_ALGORITHM`. O fix manual é
+`supabase functions deploy generate-invite --no-verify-jwt` — mas o config.toml já garante isso.
+
+## Verificar se as funções estão deployadas
+
+Antes de debugar o app, confirme o estado das Edge Functions:
+
+**Via Dashboard**: abrir https://supabase.com/dashboard/project/nlgqdvekpaxlmywowxnr/functions.
+`generate-invite` e `redeem-invite` devem aparecer como "Active". Se a lista
+estiver vazia ou só uma aparece, a outra nunca foi deployada — use a Opção A ou B abaixo.
+
+**Via CLI**: `supabase functions list --project-ref nlgqdvekpaxlmywowxnr`.
+
+**Sintoma no app**: mensagens "A função de convites não está deployada" ou
+"Não foi possível conectar ao servidor de convites" em Configurações > Convites
+quase sempre indicam função ausente do projeto Supabase.
+
 ## Deploy
 
 ### Opção A — via Supabase CLI (local, recomendado quando for iterar muito)
