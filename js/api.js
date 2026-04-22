@@ -122,8 +122,11 @@ async function callAI({ system, messages, maxTokens = 1000, jsonMode = false }) 
       }
       if (res.ok) {
         const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        return { text, raw: data, modelUsed: model };
+        const candidate = data.candidates?.[0];
+        const text = candidate?.content?.parts?.[0]?.text || '';
+        // finishReason = 'MAX_TOKENS' sinaliza truncamento; callers podem tratar diferente.
+        const finishReason = candidate?.finishReason || null;
+        return { text, finishReason, raw: data, modelUsed: model };
       }
       let errBody = null;
       try { errBody = await res.json(); } catch (e) {}
@@ -418,19 +421,38 @@ Para receitas use category "Receita" com type "receita".
 
 IMPORTANTE: Datas em YYYY-MM-DD. Value SEMPRE positivo (o sinal é inferido pelo type). Em fatura de cartão todas as transações são despesa (não precisa do campo type). Extraia TODAS as transações, não resuma. Responda APENAS com o JSON, sem texto antes ou depois.`;
 
-    const { text: responseText } = await callAI({
+    const { text: responseText, finishReason } = await callAI({
       system: systemPrompt,
       messages: [{ role: 'user', content: `Analise e classifique TODAS as transações deste documento:\n\n${text}` }],
-      maxTokens: 8000,
+      maxTokens: 16000,
       jsonMode: true
     });
     let parsed;
     try {
       parsed = JSON.parse(responseText);
-    } catch (e) {
-      const jsonMatch = responseText.match(/\{[\s\S]*("tipo"|"transacoes")[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('IA não retornou JSON válido');
-      parsed = JSON.parse(jsonMatch[0]);
+    } catch (firstErr) {
+      // Truncamento detectado: resposta excedeu maxTokens. Pede pro usuário fragmentar.
+      if (finishReason === 'MAX_TOKENS') {
+        throw new Error('Documento muito longo — o modelo foi truncado. Cole por partes (ex.: um mês de cada vez).');
+      }
+      // LLM às vezes envolve o JSON em texto ou markdown. Extrai o primeiro { … } balanceado.
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.warn('[processarExtrato] Resposta sem JSON. Início:', responseText.substring(0, 300));
+        throw new Error('IA não retornou JSON. Tente de novo ou cole um trecho menor.');
+      }
+      // Repara bugs comuns do LLM: trailing comma antes de ]/}, vírgula faltando entre objetos ou arrays.
+      const repaired = jsonMatch[0]
+        .replace(/,(\s*[\]}])/g, '$1')
+        .replace(/}(\s*){/g, '},$1{')
+        .replace(/](\s*)\[/g, '],$1[');
+      try {
+        parsed = JSON.parse(repaired);
+      } catch (secondErr) {
+        console.error('[processarExtrato] JSON malformado após reparo:', secondErr.message);
+        console.error('[processarExtrato] Amostra do candidato (primeiros 500 chars):', jsonMatch[0].substring(0, 500));
+        throw new Error(`IA retornou JSON inválido. Cole um trecho menor ou tente novamente. (${secondErr.message})`);
+      }
     }
 
     // === FATURA DE CARTÃO (grouped bill) ===

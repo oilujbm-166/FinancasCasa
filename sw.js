@@ -1,3 +1,5 @@
+// v14: processarExtrato faz repair de JSON malformado do Gemini + detecta MAX_TOKENS +
+//      maxTokens de 8000 pra 16000. Corrige bug "Expected ',' or ']' after array element".
 // v13: Backup JSON agora inclui perfil e planejamentoMedica — mudança em js/app.js precisa
 //      invalidar o cache pra chegar em browsers que já estão rodando a PWA.
 // v12: Fase A do envelope encryption — registra js/crypto/envelope.js no cache.
@@ -7,7 +9,7 @@
 // v8: Perfil dinâmico na sidebar — avatar e nome do lar derivados de perfil.casal.
 // v7: Fase 0 — retry com backoff + fallback entre modelos Gemini + mensagens de erro classificadas.
 // Bump força reinstalação do SW para que browsers existentes peguem os JS novos.
-const CACHE_NAME = 'financascasa-v13';
+const CACHE_NAME = 'financascasa-v14';
 const ASSETS = [
   './',
   './index.html',
