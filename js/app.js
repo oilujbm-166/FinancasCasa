@@ -385,12 +385,16 @@ function updateLastBackupLabel() {
 function backupData() {
   const customCats = {};
   Object.entries(CATEGORIES).forEach(([k, v]) => { if (k !== 'Receita') customCats[k] = v; });
+  // v4: inclui perfil e planejamentoMedica — necessário pra que o backup seja
+  // um plano B completo se o usuário perder a senha (envelope encryption).
   const data = {
-    version: 3,
+    version: 4,
     date: new Date().toISOString(),
     transactions, budgetData, goals, investments,
     customCategories: customCats,
-    aiHistory
+    aiHistory,
+    perfil: (typeof perfil !== 'undefined') ? perfil : { casal: '' },
+    planejamentoMedica: (typeof planejamentoMedica !== 'undefined') ? planejamentoMedica : null
   };
   const json = JSON.stringify(data, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
@@ -452,8 +456,29 @@ function restoreBackup() {
         data.aiHistory.forEach(h => aiHistory.push(h));
       }
       migrateOldInvestments();
+
+      // v4+: perfil (nome do lar) e planejamentoMedica. Espelha loadFromSupabase (js/supabase.js:881-888).
+      if (data.perfil && typeof perfil !== 'undefined') {
+        perfil = { casal: data.perfil.casal || '' };
+        const perfilInput = document.getElementById('perfilCasalInput');
+        if (perfilInput) perfilInput.value = perfil.casal || '';
+        if (typeof refreshProfileDisplay === 'function') refreshProfileDisplay();
+      }
+      if (data.planejamentoMedica && typeof planejamentoMedica !== 'undefined') {
+        planejamentoMedica = data.planejamentoMedica;
+        if (typeof pmRestoreCategorias === 'function') pmRestoreCategorias();
+      }
+
       refreshAll();
       alert('Backup restaurado com sucesso! ' + transactions.length + ' transações carregadas.');
+
+      // Empurra o estado restaurado pra nuvem pra evitar que o cloud sobreponha depois.
+      // Silenciosamente skippa em offline ou sem usuário autenticado.
+      if (typeof scheduleSyncToSupabase === 'function'
+          && typeof _isOfflineMode !== 'undefined' && !_isOfflineMode
+          && typeof _currentUser !== 'undefined' && _currentUser) {
+        scheduleSyncToSupabase();
+      }
     } catch (err) {
       alert('Erro ao ler backup: ' + err.message);
     }
